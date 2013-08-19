@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -50,6 +50,8 @@ class SocketInfo;
 typedef std::shared_ptr<SocketInfo> SocketInfoPtr;
 
 typedef std::function<void(caspar::IO::SocketInfoPtr)> ClientDisconnectEvent;
+typedef std::function<std::shared_ptr<void> (const std::string& ipv4_address)>
+		lifecycle_factory_t;
 
 class AsyncEventServer : public IRunnable
 {
@@ -72,6 +74,7 @@ public:
 
 	void SetClientDisconnectHandler(ClientDisconnectEvent handler);
 	
+	void add_lifecycle_factory(const lifecycle_factory_t& lifecycle_factory);
 private:
 	Thread	listenThread_;
 	void Run(HANDLE stopEvent);
@@ -132,6 +135,7 @@ private:
 		SocketInfoMap socketInfoMap_;
 		bool bDirty_;
 	};
+	std::vector<lifecycle_factory_t> lifecycle_factories_;
 	SocketInfoCollection socketInfoCollection_;
 	tbb::mutex mutex_;
 };

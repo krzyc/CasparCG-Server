@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -23,13 +23,14 @@
 
 #include "consumer/ogl_consumer.h"
 
+#include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
 
 namespace caspar { namespace ogl {
 
 void init()
 {
-	caspar::core::register_consumer_factory([](const std::vector<std::wstring>& params){return create_consumer(params);});
+	caspar::core::register_consumer_factory([](const core::parameters& params){return ogl::create_consumer(params);});
 }
 
 }}

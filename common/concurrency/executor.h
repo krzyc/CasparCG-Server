@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -86,7 +86,6 @@ class executor : boost::noncopyable
 	const std::string name_;
 	boost::thread thread_;
 	tbb::atomic<bool> is_running_;
-	tbb::atomic<bool> execute_rest_;
 	
 	typedef tbb::concurrent_bounded_queue<std::function<void()>> function_queue;
 	function_queue execution_queue_[priority_count];
@@ -154,15 +153,7 @@ public:
 				
 	void stop() // noexcept
 	{
-		execute_rest_ = false;
 		is_running_ = false;	
-		execution_queue_[normal_priority].try_push([]{}); // Wake the execution thread.
-	}
-				
-	void stop_execute_rest() // noexcept
-	{
-		execute_rest_ = true;
-		is_running_ = false;
 		execution_queue_[normal_priority].try_push([]{}); // Wake the execution thread.
 	}
 
@@ -175,71 +166,6 @@ public:
 	{
 		if(boost::this_thread::get_id() != thread_.get_id())
 			thread_.join();
-	}
-
-	template<typename Func>
-	auto try_begin_invoke(Func&& func, task_priority priority = normal_priority) -> boost::optional<caspar::move_on_copy<boost::unique_future<decltype(func())>>>
-	{	
-		if(!is_running_)
-			BOOST_THROW_EXCEPTION(invalid_operation() << msg_info("executor not running."));
-
-		// Create a move on copy adaptor to avoid copying the functor into the queue, tbb::concurrent_queue does not support move semantics.
-		auto task_adaptor = make_move_on_copy(create_task(func));
-
-		auto future = task_adaptor.value.get_future();
-
-		// Enable the cancellation of the task if priority is other than
-		// normal, because there are two queues to try_push to. Either both
-		// succeed or nothing will be executed.
-		
-		boost::promise<bool> cancelled_promise;
-		boost::shared_future<bool> cancelled(cancelled_promise.get_future());
-
-		bool was_enqueued = execution_queue_[priority].try_push([=]() mutable
-		{
-			// Wait until we know if we should cancel execution or not.
-			if (cancelled.get())
-				return;
-
-			try
-			{
-				task_adaptor.value();
-			}
-			catch(boost::task_already_started&)
-			{
-			}
-			catch(...)
-			{
-				CASPAR_LOG_CURRENT_EXCEPTION();
-			}
-		});
-
-		if (!was_enqueued)
-			return boost::optional<caspar::move_on_copy<boost::unique_future<decltype(func())>>>();
-
-		if (priority != normal_priority)
-		{
-			was_enqueued = execution_queue_[normal_priority].try_push(nullptr);
-
-			if (was_enqueued)
-			{
-				// Now we know that both enqueue operations has succeeded.
-				cancelled_promise.set_value(false);
-			}
-			else
-			{
-				cancelled_promise.set_value(true); // The actual task has already been
-				                                   // queued so we cancel it.
-
-				return boost::optional<caspar::move_on_copy<boost::unique_future<decltype(func())>>>();
-			}
-		}
-		else
-		{
-			cancelled_promise.set_value(false);
-		}
-
-		return caspar::make_move_on_copy(std::move(future));
 	}
 				
 	template<typename Func>
@@ -339,11 +265,8 @@ private:
 			}
 		}
 
-		if (execute_rest_)
-		{
-			execute_rest(high_priority);
-			execute_rest(normal_priority);
-		}
+		execute_rest(high_priority);
+		execute_rest(normal_priority);
 	}	
 };
 

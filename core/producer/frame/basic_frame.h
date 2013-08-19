@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -55,7 +55,8 @@ public:
 
 	const frame_transform& get_frame_transform() const;
 	frame_transform& get_frame_transform();
-				
+	virtual int64_t get_and_record_age_millis();
+
 	static safe_ptr<basic_frame> interlace(const safe_ptr<basic_frame>& frame1, const safe_ptr<basic_frame>& frame2, field_mode::type mode);
 	static safe_ptr<basic_frame> combine(const safe_ptr<basic_frame>& frame1, const safe_ptr<basic_frame>& frame2);
 	static safe_ptr<basic_frame> fill_and_key(const safe_ptr<basic_frame>& fill, const safe_ptr<basic_frame>& key);

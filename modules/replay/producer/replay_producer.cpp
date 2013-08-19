@@ -27,6 +27,7 @@
 
 #include <core/video_format.h>
 
+#include <core/parameters/parameters.h>
 #include <core/producer/frame/basic_frame.h>
 #include <core/producer/frame/frame_factory.h>
 #include <core/mixer/write_frame.h>
@@ -748,10 +749,7 @@ struct replay_producer : public core::frame_producer
 
 
 
-safe_ptr<core::frame_producer> create_producer(
-		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params)
+safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params)
 {
 	static const std::vector<std::wstring> extensions = list_of(L"mav");
 	std::wstring filename = env::media_folder() + L"\\" + params[0];

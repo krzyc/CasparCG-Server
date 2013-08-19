@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -33,6 +33,11 @@
 
 namespace caspar { namespace core {
 
+channel_layout::channel_layout()
+	: num_channels(0)
+{
+}
+
 bool channel_layout::operator==(const channel_layout& other) const
 {
 	return channel_names == other.channel_names
@@ -58,6 +63,19 @@ bool channel_layout::has_channel(const std::wstring& channel_name) const
 bool channel_layout::no_channel_names() const
 {
 	return channel_names.empty();
+}
+
+const channel_layout& channel_layout::stereo()
+{
+	static channel_layout layout = create_layout_from_string(
+			L"stereo", L"2.0", 2, L"L R");
+
+	return layout;
+}
+
+mix_config::mix_config()
+	: strategy(add)
+{
 }
 
 bool needs_rearranging(
@@ -148,8 +166,7 @@ void register_default_channel_layouts(channel_layout_repository& repository)
 {
 	repository.register_layout(create_layout_from_string(
 			L"mono",         L"1.0",           1, L"C"));
-	repository.register_layout(create_layout_from_string(
-			L"stereo",       L"2.0",           2, L"L R"));
+	repository.register_layout(channel_layout::stereo());
 	repository.register_layout(create_layout_from_string(
 			L"dts",          L"5.1",           6, L"C L R Ls Rs LFE"));
 	repository.register_layout(create_layout_from_string(
@@ -170,7 +187,7 @@ void parse_channel_layouts(
 	BOOST_FOREACH(auto& layout, layouts_element)
 	{
 		repository.register_layout(create_layout_from_string(
-				layout.first,
+				layout.second.get<std::wstring>(L"name"),
 				layout.second.get<std::wstring>(L"type"),
 				layout.second.get<int>(L"num-channels"),
 				layout.second.get<std::wstring>(L"channels")));

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -49,7 +49,7 @@ struct draw_params
 	pixel_format_desc						pix_desc;
 	std::vector<safe_ptr<device_buffer>>	textures;
 	frame_transform							transform;
-	blend_mode::type						blend_mode;
+	blend_mode								blend_mode;
 	keyer::type								keyer;
 	std::shared_ptr<device_buffer>			background;
 	std::shared_ptr<device_buffer>			local_key;
@@ -67,6 +67,8 @@ class image_kernel : boost::noncopyable
 public:
 	image_kernel(const safe_ptr<ogl_device>& ogl);
 	void draw(draw_params&& params);
+	void post_process(
+			const safe_ptr<device_buffer>& background, bool straighten_alpha);
 private:
 	struct implementation;
 	safe_ptr<implementation> impl_;

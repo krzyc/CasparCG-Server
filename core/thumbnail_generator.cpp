@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -126,7 +126,7 @@ public:
 				output_,
 				format_desc_,
 				ogl,
-				default_channel_layout_repository().get_by_name(L"STEREO")))
+				channel_layout::stereo()))
 		, thumbnail_creator_(thumbnail_creator)
 		, monitor_(monitor_factory.create(
 				media_path,

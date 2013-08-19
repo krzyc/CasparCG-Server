@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -42,6 +42,7 @@
 #include <core/video_format.h>
 #include <core/producer/transition/transition_producer.h>
 #include <core/producer/channel/channel_producer.h>
+#include <core/producer/layer/layer_producer.h>
 #include <core/producer/frame/frame_transform.h>
 #include <core/producer/stage.h>
 #include <core/producer/layer.h>
@@ -211,7 +212,7 @@ std::wstring MediaInfo(const boost::filesystem::wpath& path)
 			    extension == TEXT(".DV") || extension == TEXT(".MOV") || 
 				extension == TEXT(".MPG") || extension == TEXT(".AVI") || 
 				extension == TEXT(".MP4") || extension == TEXT(".FLV") || 
-				extension == TEXT(".STGA") || extension == TEXT(".MAV") ||
+				extension == TEXT(".STGA") || 
 				caspar::ffmpeg::is_valid_file(path.file_string()))
 			clipttype = TEXT(" MOVIE ");
 
@@ -333,7 +334,7 @@ bool ChannelGridCommand::DoExecute()
 	int index = 1;
 	auto self = GetChannels().back();
 	
-	std::vector<std::wstring> params;
+	core::parameters params;
 	params.push_back(L"SCREEN");
 	params.push_back(L"NAME");
 	params.push_back(L"Channel Grid Window");
@@ -352,10 +353,8 @@ bool ChannelGridCommand::DoExecute()
 		}
 	}
 
-	// Use best fit (use as big pictures as possible)
-    int n = (int)ceil(sqrt((float)GetChannels().size()-1));
-    double delta = 1.0/static_cast<double>(n);
-
+	int n = GetChannels().size()-1;
+	double delta = 1.0/static_cast<double>(n);
 	for(int x = 0; x < n; ++x)
 	{
 		for(int y = 0; y < n; ++y)
@@ -388,17 +387,18 @@ bool CallCommand::DoExecute()
 		auto what = _parameters.at(0);
 				
 		boost::unique_future<std::wstring> result;
+		auto& params_orig = _parameters.get_original();
 		if(what == L"B" || what == L"F")
 		{
 			std::wstring param;
-			for(auto it = std::begin(_parameters2)+1; it != std::end(_parameters2); ++it, param += L" ")
+			for(auto it = std::begin(params_orig)+1; it != std::end(params_orig); ++it, param += L" ")
 				param += *it;
 			result = GetChannel()->stage()->call(GetLayerIndex(), what == L"F", boost::trim_copy(param));
 		}
 		else
 		{
 			std::wstring param;
-			for(auto it = std::begin(_parameters2); it != std::end(_parameters2); ++it, param += L" ")
+			for(auto it = std::begin(params_orig); it != std::end(params_orig); ++it, param += L" ")
 				param += *it;
 			result = GetChannel()->stage()->call(GetLayerIndex(), true, boost::trim_copy(param));
 		}
@@ -427,8 +427,14 @@ bool CallCommand::DoExecute()
 // UGLY HACK
 tbb::concurrent_unordered_map<int, std::vector<stage::transform_tuple_t>> deferred_transforms;
 
+core::frame_transform MixerCommand::get_current_transform()
+{
+	return GetChannel()->stage()->get_current_transform(GetLayerIndex());
+}
+
 bool MixerCommand::DoExecute()
-{	
+{
+	using boost::lexical_cast;
 	//Perform loading of the clip
 	try
 	{	
@@ -440,6 +446,9 @@ bool MixerCommand::DoExecute()
 
 		if(_parameters[0] == L"KEYER" || _parameters[0] == L"IS_KEY")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.is_key ? 1 : 0; });
+
 			bool value = boost::lexical_cast<int>(_parameters.at(1));
 			transforms.push_back(stage::transform_tuple_t(GetLayerIndex(), [=](frame_transform transform) -> frame_transform
 			{
@@ -449,6 +458,9 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"OPACITY")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.opacity; });
+
 			int duration = _parameters.size() > 2 ? boost::lexical_cast<int>(_parameters[2]) : 0;
 			std::wstring tween = _parameters.size() > 3 ? _parameters[3] : L"linear";
 
@@ -462,6 +474,20 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"FILL" || _parameters[0] == L"FILL_RECT")
 		{
+			if (_parameters.size() == 1)
+			{
+				auto transform = get_current_transform();
+				auto translation = transform.fill_translation;
+				auto scale = transform.fill_scale;
+				SetReplyString(
+						L"201 MIXER OK\r\n" 
+						+ lexical_cast<std::wstring>(translation[0]) + L" "
+						+ lexical_cast<std::wstring>(translation[1]) + L" "
+						+ lexical_cast<std::wstring>(scale[0]) + L" "
+						+ lexical_cast<std::wstring>(scale[1]) + L"\r\n");
+				return true;
+			}
+
 			int duration = _parameters.size() > 5 ? boost::lexical_cast<int>(_parameters[5]) : 0;
 			std::wstring tween = _parameters.size() > 6 ? _parameters[6] : L"linear";
 			double x	= boost::lexical_cast<double>(_parameters.at(1));
@@ -475,21 +501,36 @@ bool MixerCommand::DoExecute()
 				transform.fill_translation[1]	= y;
 				transform.fill_scale[0]			= x_s;
 				transform.fill_scale[1]			= y_s;
-				transform.clip_translation[0]	= x;
-				transform.clip_translation[1]	= y;
-				transform.clip_scale[0]			= x_s;
-				transform.clip_scale[1]			= y_s;
 				return transform;
 			}, duration, tween));
 		}
 		else if(_parameters[0] == L"CLIP" || _parameters[0] == L"CLIP_RECT")
 		{
+			if (_parameters.size() == 1)
+			{
+				auto transform = get_current_transform();
+				auto translation = transform.clip_translation;
+				auto scale = transform.clip_scale;
+				SetReplyString(
+						L"201 MIXER OK\r\n" 
+						+ lexical_cast<std::wstring>(translation[0]) + L" "
+						+ lexical_cast<std::wstring>(translation[1]) + L" "
+						+ lexical_cast<std::wstring>(scale[0]) + L" "
+						+ lexical_cast<std::wstring>(scale[1]) + L"\r\n");
+				return true;
+			}
+
 			int duration = _parameters.size() > 5 ? boost::lexical_cast<int>(_parameters[5]) : 0;
 			std::wstring tween = _parameters.size() > 6 ? _parameters[6] : L"linear";
 			double x	= boost::lexical_cast<double>(_parameters.at(1));
 			double y	= boost::lexical_cast<double>(_parameters.at(2));
 			double x_s	= boost::lexical_cast<double>(_parameters.at(3));
 			double y_s	= boost::lexical_cast<double>(_parameters.at(4));
+			if(x_s < 0 || y_s < 0)
+			{
+				SetReplyString(L"403 MIXER ERROR\r\n");
+				return false;
+			}
 
 			transforms.push_back(stage::transform_tuple_t(GetLayerIndex(), [=](frame_transform transform) -> frame_transform
 			{
@@ -528,17 +569,70 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"BLEND")
 		{
+			if (_parameters.size() == 1)
+			{
+				auto blend_mode = GetChannel()->mixer()->get_blend_mode(GetLayerIndex());
+				SetReplyString(L"201 MIXER OK\r\n" 
+					+ lexical_cast<std::wstring>(get_blend_mode(blend_mode)) 
+					+ L"\r\n");
+				return true;
+			}
+
 			auto blend_str = _parameters.at(1);								
 			int layer = GetLayerIndex();
-			GetChannel()->mixer()->set_blend_mode(GetLayerIndex(), get_blend_mode(blend_str));	
+			blend_mode::type blend = get_blend_mode(blend_str);
+			GetChannel()->mixer()->set_blend_mode(GetLayerIndex(), blend);	
 		}
+        else if(_parameters[0] == L"CHROMA")
+        {
+			if (_parameters.size() == 1)
+			{
+				auto chroma = GetChannel()->mixer()->get_chroma(GetLayerIndex());
+				SetReplyString(L"201 MIXER OK\r\n" 
+					+ get_chroma_mode(chroma.key)
+					+ (chroma.key == chroma::none
+						? L""
+						: L" "
+						+ lexical_cast<std::wstring>(chroma.threshold) + L" "
+						+ lexical_cast<std::wstring>(chroma.softness))
+					+ L"\r\n");
+					// Add the rest when they are actually used and documented
+				return true;
+			}
+
+			int layer = GetLayerIndex();
+            chroma chroma;
+            chroma.key = get_chroma_mode(_parameters[1]);
+
+			if (chroma.key != chroma::none)
+			{
+				chroma.threshold    = boost::lexical_cast<double>(_parameters[2]);
+				chroma.softness     = boost::lexical_cast<double>(_parameters[3]);
+				chroma.spill        = _parameters.size() > 4 ? boost::lexical_cast<double>(_parameters[4]) : 0.0f;
+				chroma.blur         = _parameters.size() > 5 ? boost::lexical_cast<double>(_parameters[5]) : 0.0f;
+				chroma.show_mask    = _parameters.size() > 6 ? bool(boost::lexical_cast<int>(_parameters[6])) : false;
+			}
+
+            GetChannel()->mixer()->set_chroma(GetLayerIndex(), chroma);
+        }
 		else if(_parameters[0] == L"MASTERVOLUME")
 		{
+			if (_parameters.size() == 1)
+			{
+				auto volume = GetChannel()->mixer()->get_master_volume();
+				SetReplyString(L"201 MIXER OK\r\n" 
+					+ lexical_cast<std::wstring>(volume) + L"\r\n");
+				return true;
+			}
+
 			float master_volume = boost::lexical_cast<float>(_parameters.at(1));
 			GetChannel()->mixer()->set_master_volume(master_volume);
 		}
 		else if(_parameters[0] == L"BRIGHTNESS")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.brightness; });
+
 			auto value = boost::lexical_cast<double>(_parameters.at(1));
 			int duration = _parameters.size() > 2 ? boost::lexical_cast<int>(_parameters[2]) : 0;
 			std::wstring tween = _parameters.size() > 3 ? _parameters[3] : L"linear";
@@ -550,6 +644,9 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"SATURATION")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.saturation; });
+
 			auto value = boost::lexical_cast<double>(_parameters.at(1));
 			int duration = _parameters.size() > 2 ? boost::lexical_cast<int>(_parameters[2]) : 0;
 			std::wstring tween = _parameters.size() > 3 ? _parameters[3] : L"linear";
@@ -561,6 +658,9 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"CONTRAST")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.contrast; });
+
 			auto value = boost::lexical_cast<double>(_parameters.at(1));
 			int duration = _parameters.size() > 2 ? boost::lexical_cast<int>(_parameters[2]) : 0;
 			std::wstring tween = _parameters.size() > 3 ? _parameters[3] : L"linear";
@@ -572,6 +672,18 @@ bool MixerCommand::DoExecute()
 		}
 		else if(_parameters[0] == L"LEVELS")
 		{
+			if (_parameters.size() == 1)
+			{
+				auto levels = get_current_transform().levels;
+				SetReplyString(L"201 MIXER OK\r\n"
+					+ lexical_cast<std::wstring>(levels.min_input) + L" "
+					+ lexical_cast<std::wstring>(levels.max_input) + L" "
+					+ lexical_cast<std::wstring>(levels.gamma) + L" "
+					+ lexical_cast<std::wstring>(levels.min_output) + L" "
+					+ lexical_cast<std::wstring>(levels.max_output) + L"\r\n");
+				return true;
+			}
+
 			levels value;
 			value.min_input  = boost::lexical_cast<double>(_parameters.at(1));
 			value.max_input  = boost::lexical_cast<double>(_parameters.at(2));
@@ -587,8 +699,25 @@ bool MixerCommand::DoExecute()
 				return transform;
 			}, duration, tween));
 		}
+		else if(_parameters[0] == L"STRAIGHT_ALPHA_OUTPUT")
+		{
+			if (_parameters.size() == 1)
+			{
+				SetReplyString(L"201 MIXER OK\r\n"
+					+ lexical_cast<std::wstring>(
+							GetChannel()->mixer()->get_straight_alpha_output())
+					+ L"\r\n");
+				return true;
+			}
+
+			bool value = boost::lexical_cast<bool>(_parameters[1]);
+			GetChannel()->mixer()->set_straight_alpha_output(value);
+		}
 		else if(_parameters[0] == L"VOLUME")
 		{
+			if (_parameters.size() == 1)
+				return reply_value([](const frame_transform& t) { return t.volume; });
+
 			int duration = _parameters.size() > 2 ? boost::lexical_cast<int>(_parameters[2]) : 0;
 			std::wstring tween = _parameters.size() > 3 ? _parameters[3] : L"linear";
 			double value = boost::lexical_cast<double>(_parameters[1]);
@@ -747,13 +876,119 @@ bool RemoveCommand::DoExecute()
 	}
 }
 
+safe_ptr<core::frame_producer> RouteCommand::TryCreateProducer(AMCPCommand& command, std::wstring const& uri)
+{
+	safe_ptr<core::frame_producer> pFP(frame_producer::empty());
+
+	auto tokens = core::parameters::protocol_split(uri);
+	auto src_channel_layer_token = tokens[0] == L"route" ? tokens[1] : uri;
+	std::vector<std::wstring> src_channel_layer;
+	boost::split(src_channel_layer, src_channel_layer_token, boost::is_any_of("-"));
+	bool is_channel_layer_spec = src_channel_layer.size() == 2;
+	bool is_channel_spec = src_channel_layer.size() == 1;
+	int src_channel_index;
+
+	if (is_channel_layer_spec || is_channel_spec)
+	{
+		try
+		{
+			src_channel_index = boost::lexical_cast<int>(src_channel_layer[0]);
+		}
+		catch(const boost::bad_lexical_cast&)
+		{
+			is_channel_layer_spec = false;
+			is_channel_spec = false;
+		}
+	}
+
+	int src_layer_index = -1;
+
+	if (is_channel_layer_spec)
+	{
+		if (!src_channel_layer[1].empty())
+		{
+			try
+			{
+				src_layer_index = boost::lexical_cast<int>(src_channel_layer[1]);
+			}
+			catch(const boost::bad_lexical_cast&)
+			{
+				is_channel_layer_spec = false;
+			}
+		}
+		else
+			is_channel_layer_spec = false;
+	}
+
+	if (tokens[0] == L"route" || is_channel_layer_spec || is_channel_spec) // It looks like a route
+	{
+		// Find the source channel
+		auto channels = command.GetChannels();
+		auto src_channel = std::find_if(
+			channels.begin(), 
+			channels.end(), 
+			[src_channel_index](const safe_ptr<core::video_channel>& item) { return item->index() == src_channel_index; }
+		);
+		if (src_channel == channels.end())
+			BOOST_THROW_EXCEPTION(null_argument() << msg_info("src channel not found"));
+
+		// Find the source layer (if one is given)
+		if (is_channel_layer_spec)
+			pFP = create_layer_producer(command.GetChannel()->mixer(), (*src_channel)->stage(), src_layer_index);
+		else 
+			pFP = create_channel_producer(command.GetChannel()->mixer(), *src_channel);
+	}
+	return pFP;
+}
+
+bool RouteCommand::DoExecute()
+{	
+	try
+	{
+		auto pFP = RouteCommand::TryCreateProducer(
+				*this, _parameters.at_original(0));
+
+		if (pFP != frame_producer::empty())
+		{
+			GetChannel()->stage()->load(GetLayerIndex(), pFP, true);
+			GetChannel()->stage()->play(GetLayerIndex());
+
+			SetReplyString(TEXT("202 ROUTE OK\r\n"));
+		
+			return true;
+		}
+		SetReplyString(TEXT("404 ROUTE ERROR\r\n"));
+		return false;
+	}
+	catch(file_not_found&)
+	{
+		CASPAR_LOG_CURRENT_EXCEPTION();
+		SetReplyString(TEXT("404 ROUTE ERROR\r\n"));
+		return false;
+	}
+	catch(...)
+	{
+		CASPAR_LOG_CURRENT_EXCEPTION();
+		SetReplyString(TEXT("502 ROUTE FAILED\r\n"));
+		return false;
+	}
+}
+
 bool LoadCommand::DoExecute()
 {	
 	//Perform loading of the clip
 	try
 	{
-		_parameters[0] = _parameters[0];
-		auto pFP = create_producer(GetChannel()->mixer(), _parameters, _parameters2);		
+		auto uri_tokens = parameters::protocol_split(_parameters.at_original(0));
+		auto pFP = frame_producer::empty();
+		if (uri_tokens[0] == L"route")
+		{
+			pFP = RouteCommand::TryCreateProducer(*this, _parameters.at_original(0));
+		}
+		if (pFP == frame_producer::empty())
+		{
+			pFP = create_producer(GetChannel()->mixer(), _parameters);
+		}
 		GetChannel()->stage()->load(GetLayerIndex(), pFP, true);
 	
 		SetReplyString(TEXT("202 LOAD OK\r\n"));
@@ -858,8 +1093,16 @@ bool LoadbgCommand::DoExecute()
 	//Perform loading of the clip
 	try
 	{
-		_parameters[0] = _parameters[0];
-		auto pFP = create_producer(GetChannel()->mixer(), _parameters, _parameters2);
+		auto uri_tokens = core::parameters::protocol_split(_parameters.at_original(0));
+		auto pFP = frame_producer::empty();
+		if (uri_tokens[0] == L"route")
+		{
+			pFP = RouteCommand::TryCreateProducer(*this, _parameters.at_original(0));
+		}
+		if (pFP == frame_producer::empty())
+		{
+			pFP = create_producer(GetChannel()->mixer(), _parameters);
+		}
 		if(pFP == frame_producer::empty())
 			BOOST_THROW_EXCEPTION(file_not_found() << msg_info(_parameters.size() > 0 ? narrow(_parameters[0]) : ""));
 
@@ -874,10 +1117,7 @@ bool LoadbgCommand::DoExecute()
 	}
 	catch(file_not_found&)
 	{		
-		std::wstring params2;
-		for(auto it = _parameters2.begin(); it != _parameters2.end(); ++it)
-			params2 += L" " + *it;
-		CASPAR_LOG(error) << L"File not found. No match found for parameters. Check syntax:" << params2;
+		CASPAR_LOG(error) << L"File not found. No match found for parameters. Check syntax:" << _parameters.get_original_string();
 		SetReplyString(TEXT("404 LOADBG ERROR\r\n"));
 		return false;
 	}
@@ -912,12 +1152,12 @@ bool PlayCommand::DoExecute()
 		if(!_parameters.empty())
 		{
 			LoadbgCommand lbg;
+			lbg.SetChannels(GetChannels());
 			lbg.SetChannel(GetChannel());
 			lbg.SetChannelIndex(GetChannelIndex());
 			lbg.SetLayerIntex(GetLayerIndex());
 			lbg.SetClientInfo(GetClientInfo());
-			for(auto it = _parameters2.begin(); it != _parameters2.end(); ++it)
-				lbg.AddParameter(*it);
+			lbg.SetParameters(_parameters);
 			if(!lbg.Execute())
 				throw std::exception();
 		}
@@ -966,7 +1206,9 @@ bool ClearCommand::DoExecute()
 
 bool PrintCommand::DoExecute()
 {
-	GetChannel()->output()->add(create_consumer(boost::assign::list_of(L"IMAGE")));
+	parameters params;
+	params.push_back(L"IMAGE");
+	GetChannel()->output()->add(create_consumer(params));
 		
 	SetReplyString(TEXT("202 PRINT OK\r\n"));
 
@@ -1053,7 +1295,7 @@ bool CGCommand::DoExecuteAdd() {
 
 	if(_parameters[3].length() > 1) 
 	{	//read label
-		label = _parameters2[3];
+		label = _parameters.at_original(3);
 		++dataIndex;
 
 		if(_parameters.size() > 4 && _parameters[4].length() > 0)	//read play-on-load-flag
@@ -1078,7 +1320,7 @@ bool CGCommand::DoExecuteAdd() {
 	std::wstring dataFromFile;
 	if(_parameters.size() > dataIndex) 
 	{	//read data
-		const std::wstring& dataString = _parameters2[dataIndex];
+		const std::wstring& dataString = _parameters.at_original(dataIndex);
 
 		if(dataString[0] == TEXT('<')) //the data is an XML-string
 			pDataString = dataString.c_str();
@@ -1219,7 +1461,7 @@ bool CGCommand::DoExecuteUpdate()
 			return false;
 		}
 						
-		std::wstring dataString = _parameters2.at(2);				
+		std::wstring dataString = _parameters.at_original(2);
 		if(dataString.at(0) != TEXT('<'))
 		{
 			//The data is not an XML-string, it must be a filename
@@ -1256,7 +1498,7 @@ bool CGCommand::DoExecuteInvoke()
 			return false;
 		}
 		int layer = _ttoi(_parameters[1].c_str());
-		auto result = flash::get_default_cg_producer(safe_ptr<core::video_channel>(GetChannel()), GetLayerIndex(flash::cg_producer::DEFAULT_LAYER))->invoke(layer, _parameters2[2]);
+		auto result = flash::get_default_cg_producer(safe_ptr<core::video_channel>(GetChannel()), GetLayerIndex(flash::cg_producer::DEFAULT_LAYER))->invoke(layer, _parameters.at_original(2));
 		replyString << result << TEXT("\r\n"); 
 	}
 	else 
@@ -1340,7 +1582,7 @@ bool DataCommand::DoExecuteStore()
 	}
 
 	datafile << static_cast<wchar_t>(65279); // UTF-8 BOM character
-	datafile << _parameters2[2] << std::flush;
+	datafile << _parameters.at_original(2) << std::flush;
 	datafile.close();
 
 	std::wstring replyString = TEXT("202 DATA STORE OK\r\n");
@@ -1682,6 +1924,31 @@ bool InfoCommand::DoExecute()
 					.add(L"index", ++index);
 			
 			boost::property_tree::write_xml(replyString, info, w);
+		}
+		else if(_parameters.size() >= 2 && _parameters[1] == L"DELAY")
+		{
+			replyString << L"201 INFO DELAY OK\r\n";
+			boost::property_tree::wptree info;
+
+			std::vector<std::wstring> split;
+			boost::split(split, _parameters[0], boost::is_any_of("-"));
+					
+			int layer = std::numeric_limits<int>::min();
+			int channel = boost::lexical_cast<int>(split[0]) - 1;
+
+			if(split.size() > 1)
+				layer = boost::lexical_cast<int>(split[1]);
+				
+			if(layer == std::numeric_limits<int>::min())
+			{	
+				info.add_child(L"channel-delay", channels_.at(channel)->delay_info());
+			}
+			else
+			{
+				info.add_child(L"layer-delay", channels_.at(channel)->stage()->delay_info(layer).get())
+					.add(L"index", layer);
+			}
+			boost::property_tree::xml_parser::write_xml(replyString, info, w);
 		}
 		else // channel
 		{			

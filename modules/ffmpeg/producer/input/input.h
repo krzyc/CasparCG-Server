@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -20,6 +20,7 @@
 */
 
 #pragma once
+#include "../ffmpeg_params.h"
 
 #include <common/memory/safe_ptr.h>
 
@@ -46,7 +47,7 @@ namespace ffmpeg {
 class input : boost::noncopyable
 {
 public:
-	explicit input(const safe_ptr<diagnostics::graph>& graph, const std::wstring& filename, bool loop, uint32_t start, uint32_t length, bool thumbnail_mode);
+	explicit input(const safe_ptr<diagnostics::graph>& graph, const std::wstring& filename, FFMPEG_Resource resource_type, bool loop, uint32_t start, uint32_t length, bool thumbnail_mode, const ffmpeg_params& vid_params);
 
 	bool try_pop(std::shared_ptr<AVPacket>& packet);
 	bool eof() const;

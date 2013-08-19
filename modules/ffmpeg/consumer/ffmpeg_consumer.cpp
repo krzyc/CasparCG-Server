@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -27,6 +27,7 @@
 
 #include "../producer/audio/audio_resampler.h"
 
+#include <core/parameters/parameters.h>
 #include <core/mixer/read_frame.h>
 #include <core/mixer/audio/audio_util.h>
 #include <core/consumer/frame_consumer.h>
@@ -37,7 +38,6 @@
 #include <common/diagnostics/graph.h>
 #include <common/env.h>
 #include <common/utility/string.h>
-#include <common/utility/param.h>
 #include <common/memory/memshfl.h>
 
 #include <boost/algorithm/string.hpp>
@@ -46,6 +46,7 @@
 
 #include <tbb/cache_aligned_allocator.h>
 #include <tbb/parallel_invoke.h>
+#include <tbb/atomic.h>
 
 #include <boost/range/algorithm.hpp>
 #include <boost/range/algorithm_ext.hpp>
@@ -245,6 +246,7 @@ struct ffmpeg_consumer : boost::noncopyable
 
 	output_format							output_format_;
 	bool									key_only_;
+	tbb::atomic<int64_t>					current_encoding_delay_;
 	
 public:
 	ffmpeg_consumer(const std::string& filename, const core::video_format_desc& format_desc, std::vector<option> options, bool key_only, const core::channel_layout& audio_channel_layout)
@@ -260,6 +262,8 @@ public:
 		, output_format_(format_desc, filename, options)
 		, key_only_(key_only)
 	{
+		current_encoding_delay_ = 0;
+
 		// TODO: Ask stakeholders about case where file already exists.
 		boost::filesystem2::remove(boost::filesystem2::wpath(env::media_folder() + widen(filename))); // Delete the file if it exists
 
@@ -302,7 +306,7 @@ public:
 
 	~ffmpeg_consumer()
 	{    
-		encode_executor_.stop_execute_rest();
+		encode_executor_.stop();
 		encode_executor_.join();
 
 		// Flush
@@ -618,7 +622,8 @@ public:
 			if (!key_only_)
 				encode_audio_frame(*frame);
 
-			graph_->set_value("frame-time", frame_timer.elapsed()*format_desc_.fps*0.5);			
+			graph_->set_value("frame-time", frame_timer.elapsed()*format_desc_.fps*0.5);
+			current_encoding_delay_ = frame->get_age_millis();
 		});
 	}
 
@@ -658,6 +663,11 @@ public:
 	virtual void initialize(const core::video_format_desc& format_desc, int)
 	{
 		format_desc_ = format_desc;
+	}
+
+	virtual int64_t presentation_frame_age_millis() const override
+	{
+		return consumer_ ? consumer_->current_encoding_delay_ : 0;
 	}
 	
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
@@ -744,35 +754,32 @@ private:
 	}
 };	
 
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params)
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
 	if(params.size() < 1 || params[0] != L"FILE")
 		return core::frame_consumer::empty();
 
-	std::vector<std::wstring> params2 = params;
+	auto params2 = params;
 	
 	auto filename	= (params2.size() > 1 ? params2[1] : L"");
-	auto separate_key_it = std::find(params2.begin(), params2.end(), L"SEPARATE_KEY");
-	bool separate_key = false;
+	bool separate_key = params2.remove_if_exists(L"SEPARATE_KEY");
 
-	if (separate_key_it != params2.end())
-	{
-		separate_key = true;
-		params2.erase(separate_key_it);
-	}
-			
 	std::vector<option> options;
 	
-	if(params2.size() >= 3)
+	if (params2.size() >= 3)
 	{
-		for(auto opt_it = params2.begin()+2; opt_it != params2.end();)
+		for (auto opt_it = params2.begin() + 2; opt_it != params2.end();)
 		{
 			auto name  = narrow(boost::trim_copy(boost::to_lower_copy(*opt_it++))).substr(1);
+
+			if (opt_it == params2.end())
+				break;
+
 			auto value = narrow(boost::trim_copy(boost::to_lower_copy(*opt_it++)));
 				
-			if(value == "h264")
+			if (value == "h264")
 				value = "libx264";
-			else if(value == "dvcpro")
+			else if (value == "dvcpro")
 				value = "dvvideo";
 
 			options.push_back(option(name, value));

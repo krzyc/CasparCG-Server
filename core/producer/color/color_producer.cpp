@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -30,6 +30,8 @@
 #include "../../mixer/write_frame.h"
 
 #include <common/exception/exceptions.h>
+
+#include <core/parameters/parameters.h>
 
 #include <boost/algorithm/string.hpp>
 
@@ -126,10 +128,9 @@ std::wstring get_hex_color(const std::wstring& str)
 
 safe_ptr<frame_producer> create_color_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params)
+		const core::parameters& params)
 {
-	if(params.size() < 0)
+	if(params.empty())
 		return core::frame_producer::empty();
 
 	auto color2 = get_hex_color(params[0]);

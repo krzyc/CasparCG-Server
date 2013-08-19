@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -31,25 +31,28 @@
 
 #include <core/mixer/gpu/ogl_device.h>
 #include <core/mixer/audio/audio_util.h>
+#include <core/mixer/mixer.h>
 #include <core/video_channel.h>
 #include <core/producer/stage.h>
 #include <core/consumer/output.h>
+#include <core/consumer/synchronizing/synchronizing_consumer.h>
 #include <core/thumbnail_generator.h>
 
 #include <modules/bluefish/bluefish.h>
 #include <modules/decklink/decklink.h>
 #include <modules/ffmpeg/ffmpeg.h>
 #include <modules/flash/flash.h>
-#include <modules/replay/replay.h>
 #include <modules/oal/oal.h>
 #include <modules/ogl/ogl.h>
 #include <modules/silverlight/silverlight.h>
 #include <modules/image/image.h>
 #include <modules/image/consumer/image_consumer.h>
+#include <modules/replay/replay.h>
 
 #include <modules/oal/consumer/oal_consumer.h>
 #include <modules/bluefish/consumer/bluefish_consumer.h>
 #include <modules/decklink/consumer/decklink_consumer.h>
+#include <modules/decklink/consumer/blocking_decklink_consumer.h>
 #include <modules/ogl/consumer/ogl_consumer.h>
 #include <modules/ffmpeg/consumer/ffmpeg_consumer.h>
 
@@ -58,7 +61,8 @@
 #include <protocol/CLK/CLKProtocolStrategy.h>
 #include <protocol/util/AsyncEventServer.h>
 #include <protocol/util/stateful_protocol_strategy_wrapper.h>
-#include <protocol/osc/server.h>
+#include <protocol/osc/client.h>
+#include <protocol/asio/io_service_manager.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
@@ -73,18 +77,22 @@ using namespace protocol;
 
 struct server::implementation : boost::noncopyable
 {
+	protocol::asio::io_service_manager			io_service_manager_;
 	core::monitor::subject						monitor_subject_;
 	boost::promise<bool>&						shutdown_server_now_;
 	safe_ptr<ogl_device>						ogl_;
 	std::vector<safe_ptr<IO::AsyncEventServer>> async_servers_;	
-	std::vector<osc::server>					osc_servers_;
+	std::shared_ptr<IO::AsyncEventServer>		primary_amcp_server_;
+	osc::client									osc_client_;
+	std::vector<std::shared_ptr<void>>			predefined_osc_subscriptions_;
 	std::vector<safe_ptr<video_channel>>		channels_;
 	std::shared_ptr<thumbnail_generator>		thumbnail_generator_;
 
 	implementation(boost::promise<bool>& shutdown_server_now)
 		: shutdown_server_now_(shutdown_server_now)
 		, ogl_(ogl_device::create())
-	{			
+		, osc_client_(io_service_manager_.service(), monitor_subject_)
+	{
 		setup_audio(env::properties());
 
 		ffmpeg::init();
@@ -118,12 +126,17 @@ struct server::implementation : boost::noncopyable
 
 		setup_controllers(env::properties());
 		CASPAR_LOG(info) << L"Initialized controllers.";
+
+		setup_osc(env::properties());
+		CASPAR_LOG(info) << L"Initialized osc.";
 	}
 
 	~implementation()
 	{		
 		ffmpeg::uninit();
 
+		thumbnail_generator_.reset();
+		primary_amcp_server_.reset();
 		async_servers_.clear();
 		channels_.clear();
 	}
@@ -132,12 +145,19 @@ struct server::implementation : boost::noncopyable
 	{
 		register_default_channel_layouts(default_channel_layout_repository());
 		register_default_mix_configs(default_mix_config_repository());
-		parse_channel_layouts(
-				default_channel_layout_repository(),
-				pt.get_child(L"configuration.audio.channel-layouts"));
-		parse_mix_configs(
-				default_mix_config_repository(),
-				pt.get_child(L"configuration.audio.mix-configs"));
+
+		auto channel_layouts =
+			pt.get_child_optional(L"configuration.audio.channel-layouts");
+		auto mix_configs =
+			pt.get_child_optional(L"configuration.audio.mix-configs");
+
+		if (channel_layouts)
+			parse_channel_layouts(
+					default_channel_layout_repository(), *channel_layouts);
+
+		if (mix_configs)
+			parse_mix_configs(
+					default_mix_config_repository(), *mix_configs);
 	}
 				
 	void setup_channels(const boost::property_tree::wptree& pt)
@@ -154,35 +174,68 @@ struct server::implementation : boost::noncopyable
 			channels_.push_back(make_safe<video_channel>(channels_.size()+1, format_desc, ogl_, audio_channel_layout));
 			
 			channels_.back()->monitor_output().link_target(&monitor_subject_);
+			channels_.back()->mixer()->set_straight_alpha_output(
+					xml_channel.second.get(L"straight-alpha-output", false));
 
-			BOOST_FOREACH(auto& xml_consumer, xml_channel.second.get_child(L"consumers"))
-			{
-				try
+			create_consumers(
+				xml_channel.second.get_child(L"consumers"),
+				[&] (const safe_ptr<core::frame_consumer>& consumer)
 				{
-					auto name = xml_consumer.first;
-					if(name == L"screen")
-						channels_.back()->output()->add(ogl::create_consumer(xml_consumer.second));					
-					else if(name == L"bluefish")					
-						channels_.back()->output()->add(bluefish::create_consumer(xml_consumer.second));					
-					else if(name == L"decklink")					
-						channels_.back()->output()->add(decklink::create_consumer(xml_consumer.second));				
-					else if(name == L"file")					
-						channels_.back()->output()->add(ffmpeg::create_consumer(xml_consumer.second));						
-					else if(name == L"system-audio")
-						channels_.back()->output()->add(oal::create_consumer());		
-					else if(name != L"<xmlcomment>")
-						CASPAR_LOG(warning) << "Invalid consumer: " << widen(name);	
-				}
-				catch(...)
-				{
-					CASPAR_LOG_CURRENT_EXCEPTION();
-				}
-			}							
+					channels_.back()->output()->add(consumer);
+				});
 		}
 
 		// Dummy diagnostics channel
 		if(env::properties().get(L"configuration.channel-grid", false))
 			channels_.push_back(make_safe<video_channel>(channels_.size()+1, core::video_format_desc::get(core::video_format::x576p2500), ogl_, default_channel_layout_repository().get_by_name(L"STEREO")));
+	}
+
+	template<typename Base>
+	std::vector<safe_ptr<Base>> create_consumers(const boost::property_tree::wptree& pt)
+	{
+		std::vector<safe_ptr<Base>> consumers;
+
+		create_consumers(pt, [&] (const safe_ptr<core::frame_consumer>& consumer)
+		{
+			consumers.push_back(dynamic_pointer_cast<Base>(consumer));
+		});
+
+		return consumers;
+	}
+
+	template<class Func>
+	void create_consumers(const boost::property_tree::wptree& pt, const Func& on_consumer)
+	{
+		BOOST_FOREACH(auto& xml_consumer, pt)
+		{
+			try
+			{
+				auto name = xml_consumer.first;
+
+				if (name == L"screen")
+					on_consumer(ogl::create_consumer(xml_consumer.second));
+				else if (name == L"bluefish")					
+					on_consumer(bluefish::create_consumer(xml_consumer.second));					
+				else if (name == L"decklink")					
+					on_consumer(decklink::create_consumer(xml_consumer.second));				
+				else if (name == L"blocking-decklink")
+					on_consumer(decklink::create_blocking_consumer(xml_consumer.second));				
+				else if (name == L"file" || name == L"stream")					
+					on_consumer(ffmpeg::create_consumer(xml_consumer.second));						
+				else if (name == L"system-audio")
+					on_consumer(oal::create_consumer());
+				else if (name == L"synchronizing")
+					on_consumer(make_safe<core::synchronizing_consumer>(
+							create_consumers<core::frame_consumer>(
+									xml_consumer.second)));
+				else if (name != L"<xmlcomment>")
+					CASPAR_LOG(warning) << "Invalid consumer: " << widen(name);	
+			}
+			catch(...)
+			{
+				CASPAR_LOG_CURRENT_EXCEPTION();
+			}
+		}
 	}
 		
 	void setup_controllers(const boost::property_tree::wptree& pt)
@@ -201,13 +254,9 @@ struct server::implementation : boost::noncopyable
 					auto asyncbootstrapper = make_safe<IO::AsyncEventServer>(create_protocol(protocol), port);
 					asyncbootstrapper->Start();
 					async_servers_.push_back(asyncbootstrapper);
-				}
-				else if(name == L"udp")
-				{					
-					const auto address = xml_controller.second.get(L"address", L"127.0.0.1");
-					const auto port = xml_controller.second.get<unsigned short>(L"port", 5253);
 
-					osc_servers_.push_back(osc::server(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(narrow(address)), port), monitor_subject_));
+					if (!primary_amcp_server_ && boost::iequals(protocol, L"AMCP"))
+						primary_amcp_server_ = asyncbootstrapper;
 				}
 				else
 					CASPAR_LOG(warning) << "Invalid controller: " << widen(name);	
@@ -219,6 +268,45 @@ struct server::implementation : boost::noncopyable
 		}
 	}
 
+	void setup_osc(const boost::property_tree::wptree& pt)
+	{		
+		using boost::property_tree::wptree;
+		using namespace boost::asio::ip;
+		
+		auto default_port =
+				pt.get<unsigned short>(L"configuration.osc.default-port", 6250);
+		auto predefined_clients =
+				pt.get_child_optional(L"configuration.osc.predefined-clients");
+
+		if (predefined_clients)
+		{
+			BOOST_FOREACH(auto& predefined_client, *predefined_clients)
+			{
+				const auto address =
+						predefined_client.second.get<std::wstring>(L"address");
+				const auto port =
+						predefined_client.second.get<unsigned short>(L"port");
+				predefined_osc_subscriptions_.push_back(
+						osc_client_.get_subscription_token(udp::endpoint(
+								address_v4::from_string(narrow(address)),
+								port)));
+			}
+		}
+
+		if (primary_amcp_server_)
+			primary_amcp_server_->add_lifecycle_factory(
+					[=] (const std::string& ipv4_address)
+							-> std::shared_ptr<void>
+					{
+						using namespace boost::asio::ip;
+
+						return osc_client_.get_subscription_token(
+								udp::endpoint(
+										address_v4::from_string(ipv4_address),
+										default_port));
+					});
+	}
+
 	void setup_thumbnail_generation(const boost::property_tree::wptree& pt)
 	{
 		if (!pt.get(L"configuration.thumbnails.generate-thumbnails", true))
@@ -226,7 +314,9 @@ struct server::implementation : boost::noncopyable
 
 		auto scan_interval_millis = pt.get(L"configuration.thumbnails.scan-interval-millis", 5000);
 
-		polling_filesystem_monitor_factory monitor_factory(scan_interval_millis);
+		polling_filesystem_monitor_factory monitor_factory(
+				io_service_manager_.service(),
+				scan_interval_millis);
 		thumbnail_generator_.reset(new thumbnail_generator(
 				monitor_factory, 
 				env::media_folder(),

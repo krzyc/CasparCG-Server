@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -33,8 +33,7 @@ struct frame_factory;
 
 safe_ptr<frame_producer> create_color_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params);
+		const core::parameters& params);
 safe_ptr<core::write_frame> create_color_frame(void* tag, const safe_ptr<core::frame_factory>& frame_factory, const std::wstring& color);
 
 }}

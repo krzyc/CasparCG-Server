@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -39,6 +39,7 @@ namespace caspar { namespace core {
 
 struct video_format_desc;
 struct frame_transform;
+struct write_frame_consumer;
 
 class stage : boost::noncopyable
 {
@@ -60,6 +61,7 @@ public:
 	void apply_transform(int index, const transform_func_t& transform, unsigned int mix_duration = 0, const std::wstring& tween = L"linear");
 	void clear_transforms(int index);
 	void clear_transforms();
+	frame_transform get_current_transform(int index);
 
 	void spawn_token();
 			
@@ -72,7 +74,10 @@ public:
 	void swap_layers(const safe_ptr<stage>& other);
 	void swap_layer(int index, size_t other_index);
 	void swap_layer(int index, size_t other_index, const safe_ptr<stage>& other);
-	
+
+	void add_layer_consumer(void* token, int layer, const std::shared_ptr<write_frame_consumer>& layer_consumer);
+	void remove_layer_consumer(void* token, int layer);
+
 	boost::unique_future<std::wstring>				call(int index, bool foreground, const std::wstring& param);
 
 	// Properties
@@ -82,6 +87,9 @@ public:
 
 	boost::unique_future<boost::property_tree::wptree> info() const;
 	boost::unique_future<boost::property_tree::wptree> info(int layer) const;
+
+	boost::unique_future<boost::property_tree::wptree> delay_info() const;
+	boost::unique_future<boost::property_tree::wptree> delay_info(int layer) const;
 	
 	void set_video_format_desc(const video_format_desc& format_desc);
 		

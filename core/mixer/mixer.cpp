@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -31,6 +31,7 @@
 
 #include <common/env.h>
 #include <common/concurrency/executor.h>
+#include <common/concurrency/future_util.h>
 #include <common/exception/exceptions.h>
 #include <common/gl/gl_check.h>
 #include <common/utility/tweener.h>
@@ -51,6 +52,7 @@
 
 #include <tbb/concurrent_queue.h>
 #include <tbb/spin_mutex.h>
+#include <tbb/atomic.h>
 
 #include <unordered_map>
 
@@ -60,17 +62,19 @@ struct mixer::implementation : boost::noncopyable
 {		
 	safe_ptr<diagnostics::graph>	graph_;
 	boost::timer					mix_timer_;
+	tbb::atomic<int64_t>			current_mix_time_;
 
 	safe_ptr<mixer::target_t>		target_;
 	mutable tbb::spin_mutex			format_desc_mutex_;
 	video_format_desc				format_desc_;
 	safe_ptr<ogl_device>			ogl_;
 	channel_layout					audio_channel_layout_;
+	bool							straighten_alpha_;
 	
 	audio_mixer	audio_mixer_;
 	image_mixer image_mixer_;
 	
-	std::unordered_map<int, blend_mode::type> blend_modes_;
+	std::unordered_map<int, blend_mode> blend_modes_;
 			
 	executor executor_;
 
@@ -81,11 +85,13 @@ public:
 		, format_desc_(format_desc)
 		, ogl_(ogl)
 		, audio_channel_layout_(audio_channel_layout)
-		, image_mixer_(ogl)
+		, straighten_alpha_(false)
 		, audio_mixer_(graph_)
+		, image_mixer_(ogl)
 		, executor_(L"mixer")
 	{			
 		graph_->set_color("mix-time", diagnostics::color(1.0f, 0.0f, 0.9f, 0.8));
+		current_mix_time_ = 0;
 	}
 	
 	void send(const std::pair<std::map<int, safe_ptr<core::basic_frame>>, std::shared_ptr<void>>& packet)
@@ -109,11 +115,13 @@ public:
 					image_mixer_.end_layer();
 				}
 
-				auto image = image_mixer_(format_desc_);
+				auto image = image_mixer_(format_desc_, straighten_alpha_);
 				auto audio = audio_mixer_(format_desc_, audio_channel_layout_);
 				image.wait();
 
-				graph_->set_value("mix-time", mix_timer_.elapsed()*format_desc_.fps*0.5);
+				auto mix_time = mix_timer_.elapsed();
+				graph_->set_value("mix-time", mix_time*format_desc_.fps*0.5);
+				current_mix_time_ = static_cast<int64_t>(mix_time * 1000.0);
 
 				target_->send(std::make_pair(make_safe<read_frame>(ogl_, format_desc_.size, std::move(image.get()), std::move(audio), audio_channel_layout_), packet.second));
 			}
@@ -131,12 +139,20 @@ public:
 	{		
 		return make_safe<write_frame>(ogl_, tag, desc, audio_channel_layout);
 	}
+
+	blend_mode::type get_blend_mode(int index)
+	{
+		return executor_.invoke([=]
+		{
+			return blend_modes_[index].mode;
+		});
+	}
 				
 	void set_blend_mode(int index, blend_mode::type value)
 	{
 		executor_.begin_invoke([=]
 		{
-			blend_modes_[index] = value;
+			blend_modes_[index].mode = value;
 		}, high_priority);
 	}
 
@@ -154,6 +170,46 @@ public:
 		{
 			blend_modes_.clear();
 		}, high_priority);
+	}
+
+	chroma get_chroma(int index)
+	{
+		return executor_.invoke([=]
+		{
+			return blend_modes_[index].chroma;
+		});
+	}
+
+    void set_chroma(int index, const chroma & value)
+    {
+        executor_.begin_invoke([=]
+        {
+            blend_modes_[index].chroma = value;
+        }, high_priority);
+    }
+
+	void set_straight_alpha_output(bool value)
+	{
+        executor_.begin_invoke([=]
+        {
+			straighten_alpha_ = value;
+        }, high_priority);
+	}
+
+	bool get_straight_alpha_output()
+	{
+		return executor_.invoke([=]
+		{
+			return straighten_alpha_;
+		});
+	}
+
+	float get_master_volume()
+	{
+		return executor_.invoke([=]
+		{
+			return audio_mixer_.get_master_volume();
+		});
 	}
 
 	void set_master_volume(float volume)
@@ -181,9 +237,18 @@ public:
 
 	boost::unique_future<boost::property_tree::wptree> info() const
 	{
-		boost::promise<boost::property_tree::wptree> info;
-		info.set_value(boost::property_tree::wptree());
-		return info.get_future();
+		boost::property_tree::wptree info;
+		info.add(L"mix-time", current_mix_time_);
+
+		return wrap_as_future(std::move(info));
+	}
+
+	boost::unique_future<boost::property_tree::wptree> delay_info() const
+	{
+		boost::property_tree::wptree info;
+		info.put_value(current_mix_time_);
+
+		return wrap_as_future(std::move(info));
 	}
 };
 	
@@ -192,10 +257,17 @@ mixer::mixer(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<target_t>
 void mixer::send(const std::pair<std::map<int, safe_ptr<core::basic_frame>>, std::shared_ptr<void>>& frames){ impl_->send(frames);}
 core::video_format_desc mixer::get_video_format_desc() const { return impl_->get_video_format_desc(); }
 safe_ptr<core::write_frame> mixer::create_frame(const void* tag, const core::pixel_format_desc& desc, const channel_layout& audio_channel_layout){ return impl_->create_frame(tag, desc, audio_channel_layout); }		
+blend_mode::type mixer::get_blend_mode(int index) { return impl_->get_blend_mode(index); }
 void mixer::set_blend_mode(int index, blend_mode::type value){impl_->set_blend_mode(index, value);}
+chroma mixer::get_chroma(int index) { return impl_->get_chroma(index); }
+void mixer::set_chroma(int index, const chroma & value){impl_->set_chroma(index, value);}
 void mixer::clear_blend_mode(int index) { impl_->clear_blend_mode(index); }
 void mixer::clear_blend_modes() { impl_->clear_blend_modes(); }
+void mixer::set_straight_alpha_output(bool value) { impl_->set_straight_alpha_output(value); }
+bool mixer::get_straight_alpha_output() { return impl_->get_straight_alpha_output(); }
+float mixer::get_master_volume() { return impl_->get_master_volume(); }
 void mixer::set_master_volume(float volume) { impl_->set_master_volume(volume); }
 void mixer::set_video_format_desc(const video_format_desc& format_desc){impl_->set_video_format_desc(format_desc);}
 boost::unique_future<boost::property_tree::wptree> mixer::info() const{return impl_->info();}
+boost::unique_future<boost::property_tree::wptree> mixer::delay_info() const{return impl_->delay_info();}
 }}

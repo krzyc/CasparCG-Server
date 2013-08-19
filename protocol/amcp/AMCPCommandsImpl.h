@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -25,8 +25,15 @@
 
 #include "AMCPCommand.h"
 
-namespace caspar { namespace protocol {
-	
+namespace caspar {
+
+namespace core {
+	struct frame_transform;
+	struct frame_producer;
+}
+
+namespace protocol {
+
 std::wstring ListMedia();
 std::wstring ListTemplates();
 
@@ -53,6 +60,17 @@ class CallCommand : public AMCPCommandBase<true, AddToQueue, 1>
 class MixerCommand : public AMCPCommandBase<true, AddToQueue, 1>
 {
 	std::wstring print() const { return L"MixerCommand";}
+	core::frame_transform get_current_transform();
+	template<typename Func>
+	bool reply_value(const Func& extractor)
+	{
+		auto value = extractor(get_current_transform());
+
+		SetReplyString(L"201 MIXER OK\r\n"
+			+ boost::lexical_cast<std::wstring>(value) + L"\r\n");
+
+		return true;
+	}
 	bool DoExecute();
 };
 	
@@ -73,6 +91,20 @@ class SwapCommand : public AMCPCommandBase<true, AddToQueue, 1>
 	std::wstring print() const { return L"SwapCommand";}
 	bool DoExecute();
 };
+
+class RouteCommand : public AMCPCommandBase<true, AddToQueue, 1>
+{
+	std::wstring print() const { return L"RouteCommand";}
+	bool DoExecute();
+public:
+	static safe_ptr<core::frame_producer> TryCreateProducer(AMCPCommand& command, std::wstring const& uri);
+};
+
+/*class RouteCommand : public AMCPCommandBase<true, AddToQueue, 1>
+{
+	std::wstring print() const { return L"RouteCommand";}
+	bool DoExecute();
+};*/
 
 class LoadCommand : public AMCPCommandBase<true, AddToQueue, 1>
 {

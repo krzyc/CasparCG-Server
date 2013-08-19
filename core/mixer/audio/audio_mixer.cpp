@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -81,6 +81,7 @@ public:
 	implementation(const safe_ptr<diagnostics::graph>& graph)
 		: graph_(graph)
 		, format_desc_(video_format_desc::get(video_format::invalid))
+		, channel_layout_(channel_layout::stereo())
 		, master_volume_(1.0f)
 		, previous_master_volume_(master_volume_)
 	{
@@ -141,6 +142,11 @@ public:
 	void end()
 	{
 		transform_stack_.pop();
+	}
+
+	float get_master_volume() const
+	{
+		return master_volume_;
 	}
 
 	void set_master_volume(float volume)
@@ -263,6 +269,7 @@ audio_mixer::audio_mixer(const safe_ptr<diagnostics::graph>& graph) : impl_(new 
 void audio_mixer::begin(core::basic_frame& frame){impl_->begin(frame);}
 void audio_mixer::visit(core::write_frame& frame){impl_->visit(frame);}
 void audio_mixer::end(){impl_->end();}
+float audio_mixer::get_master_volume() const { return impl_->get_master_volume(); }
 void audio_mixer::set_master_volume(float volume) { impl_->set_master_volume(volume); }
 audio_buffer audio_mixer::operator()(const video_format_desc& format_desc, const channel_layout& layout){return impl_->mix(format_desc, layout);}
 

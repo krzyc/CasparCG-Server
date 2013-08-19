@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -24,6 +24,8 @@
 #include "frame_producer.h"
 #include "frame/basic_frame.h"
 #include "frame/frame_transform.h"
+
+#include "../parameters/parameters.h"
 
 #include "color/color_producer.h"
 #include "separated/separated_producer.h"
@@ -241,9 +243,9 @@ void register_thumbnail_producer_factory(const producer_factory_t& factory)
 	g_thumbnail_factories.push_back(factory);
 }
 
-safe_ptr<core::frame_producer> do_create_producer(const safe_ptr<frame_factory>& my_frame_factory, const std::vector<std::wstring>& upper_case_params, const std::vector<std::wstring>& original_case_params, const std::vector<const producer_factory_t>& factories, bool throw_on_fail = false)
+safe_ptr<core::frame_producer> do_create_producer(const safe_ptr<frame_factory>& my_frame_factory, const core::parameters& params, const std::vector<const producer_factory_t>& factories, bool throw_on_fail = false)
 {
-	if(upper_case_params.empty())
+	if(params.empty())
 		BOOST_THROW_EXCEPTION(invalid_argument() << arg_name_info("params") << arg_value_info(""));
 	
 	auto producer = frame_producer::empty();
@@ -251,7 +253,7 @@ safe_ptr<core::frame_producer> do_create_producer(const safe_ptr<frame_factory>&
 		{
 			try
 			{
-				producer = factory(my_frame_factory, upper_case_params, original_case_params);
+				producer = factory(my_frame_factory, params);
 			}
 			catch(...)
 			{
@@ -264,43 +266,47 @@ safe_ptr<core::frame_producer> do_create_producer(const safe_ptr<frame_factory>&
 		});
 
 	if(producer == frame_producer::empty())
-		producer = create_color_producer(my_frame_factory, upper_case_params, original_case_params);
+		producer = create_color_producer(my_frame_factory, params);
 	return producer;
 }
 
-safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>& my_frame_factory, const std::vector<std::wstring>& upper_case_params, const std::vector<std::wstring>& original_case_params)
+safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>& my_frame_factory, const core::parameters& params)
 {	
-	auto producer = do_create_producer(my_frame_factory, upper_case_params, original_case_params, g_factories);
+	auto producer = do_create_producer(my_frame_factory, params, g_factories);
 	auto key_producer = frame_producer::empty();
 	
+	std::wstring resource_name = L"";
+	auto tokens = parameters::protocol_split(params.at_original(0));
+	if (tokens[0].empty())
+	{
+		resource_name = params.at_original(0);
+	}
+
+	if(!resource_name.empty()) {
 	try // to find a key file.
 	{
-		auto upper_params_copy = upper_case_params;
-		auto original_params_copy = original_case_params;
-
-		if(upper_case_params.size() > 0)
+		auto params_copy = params;
+		if(params_copy.size() > 0)
 		{
-			upper_params_copy[0] += L"_A";
-			original_params_copy[0] += L"_A";
-			key_producer = do_create_producer(my_frame_factory, upper_params_copy, original_params_copy, g_factories);			
+			auto resource_name = params_copy.at_original(0);
+			params_copy.set(0, resource_name + L"_A");
+			key_producer = do_create_producer(my_frame_factory, params_copy, g_factories);			
 			if(key_producer == frame_producer::empty())
 			{
-				upper_params_copy[0] += L"LPHA";
-				original_params_copy[0] += L"LPHA";
-				key_producer = do_create_producer(my_frame_factory, upper_params_copy, original_params_copy, g_factories);	
+				params_copy.set(0, resource_name + L"_ALPHA");
+				key_producer = do_create_producer(my_frame_factory, params_copy, g_factories);	
 			}
 		}
 	}
 	catch(...){}
+	}
 
 	if(producer != frame_producer::empty() && key_producer != frame_producer::empty())
 		return create_separated_producer(producer, key_producer);
 	
 	if(producer == frame_producer::empty())
 	{
-		std::wstring str;
-		BOOST_FOREACH(auto& param, original_case_params)
-			str += param + L" ";
+		std::wstring str = params.get_original_string();
 		BOOST_THROW_EXCEPTION(file_not_found() << msg_info("No match found for supplied commands. Check syntax.") << arg_value_info(narrow(str)));
 	}
 
@@ -309,10 +315,10 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>& my
 
 safe_ptr<core::frame_producer> create_thumbnail_producer(const safe_ptr<frame_factory>& my_frame_factory, const std::wstring& media_file)
 {
-	std::vector<std::wstring> params;
+	core::parameters params;
 	params.push_back(media_file);
 
-	auto producer = do_create_producer(my_frame_factory, params, params, g_thumbnail_factories, true);
+	auto producer = do_create_producer(my_frame_factory, params, g_thumbnail_factories, true);
 	auto key_producer = frame_producer::empty();
 	
 	try // to find a key file.
@@ -320,12 +326,13 @@ safe_ptr<core::frame_producer> create_thumbnail_producer(const safe_ptr<frame_fa
 		auto params_copy = params;
 		if (params_copy.size() > 0)
 		{
-			params_copy[0] += L"_A";
-			key_producer = do_create_producer(my_frame_factory, params_copy, params_copy, g_thumbnail_factories, true);
+			auto resource_name = params_copy.at_original(0);
+			params_copy.set(0, resource_name + L"_A");
+			key_producer = do_create_producer(my_frame_factory, params_copy, g_thumbnail_factories, true);
 			if (key_producer == frame_producer::empty())
 			{
-				params_copy[0] += L"LPHA";
-				key_producer = do_create_producer(my_frame_factory, params_copy, params_copy, g_thumbnail_factories, true);
+				params_copy.set(0, resource_name + L"_ALPHA");
+				key_producer = do_create_producer(my_frame_factory, params_copy, g_thumbnail_factories, true);
 			}
 		}
 	}
@@ -337,13 +344,11 @@ safe_ptr<core::frame_producer> create_thumbnail_producer(const safe_ptr<frame_fa
 	return producer;
 }
 
-safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>& factory, const std::wstring& params)
+safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>& factory, const std::wstring& param)
 {
-	std::wstringstream iss(params);
-	std::vector<std::wstring> tokens;
-	typedef std::istream_iterator<std::wstring, wchar_t, std::char_traits<wchar_t> > iterator;
-	std::copy(iterator(iss),  iterator(), std::back_inserter(tokens));
-	return create_producer(factory, tokens, tokens);
+	parameters params;
+	params.push_back(param);
+	return create_producer(factory, params);
 }
 
 }}

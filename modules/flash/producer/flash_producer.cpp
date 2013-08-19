@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -34,6 +34,7 @@
 #include <core/video_format.h>
 
 #include <core/monitor/monitor.h>
+#include <core/parameters/parameters.h>
 #include <core/producer/frame/basic_frame.h>
 #include <core/producer/frame/frame_factory.h>
 #include <core/mixer/write_frame.h>
@@ -105,19 +106,23 @@ template_host get_template_host(const core::video_format_desc& desc)
 	try
 	{
 		std::vector<template_host> template_hosts;
-		BOOST_FOREACH(auto& xml_mapping, env::properties().get_child(L"configuration.template-hosts"))
-		{
-			try
+		auto template_hosts_element = env::properties().get_child_optional(
+				L"configuration.template-hosts");
+
+		if (template_hosts_element)
+			BOOST_FOREACH(auto& xml_mapping, *template_hosts_element)
 			{
-				template_host template_host;
-				template_host.video_mode		= xml_mapping.second.get(L"video-mode", L"");
-				template_host.filename			= xml_mapping.second.get(L"filename",	L"cg.fth");
-				template_host.width				= xml_mapping.second.get(L"width",		desc.width);
-				template_host.height			= xml_mapping.second.get(L"height",		desc.height);
-				template_hosts.push_back(template_host);
+				try
+				{
+					template_host template_host;
+					template_host.video_mode		= xml_mapping.second.get(L"video-mode", L"");
+					template_host.filename			= xml_mapping.second.get(L"filename",	L"cg.fth");
+					template_host.width				= xml_mapping.second.get(L"width",		desc.width);
+					template_host.height			= xml_mapping.second.get(L"height",		desc.height);
+					template_hosts.push_back(template_host);
+				}
+				catch(...){}
 			}
-			catch(...){}
-		}
 
 		auto template_host_it = boost::find_if(template_hosts, [&](template_host template_host){return template_host.video_mode == desc.name;});
 		if(template_host_it == template_hosts.end())
@@ -270,13 +275,13 @@ public:
 		ax_->Tick();
 		if(ax_->InvalidRect())
 		{
-			fast_memclr(bmp_.data(), width_*height_*4);
-			ax_->DrawControl(bmp_);
-		
 			core::pixel_format_desc desc;
 			desc.pix_fmt = core::pixel_format::bgra;
 			desc.planes.push_back(core::pixel_format_desc::plane(width_, height_, 4));
 			auto frame = frame_factory_->create_frame(this, desc);
+
+			fast_memclr(bmp_.data(), width_*height_*4);
+			ax_->DrawControl(bmp_);
 
 			if(frame->image_data().size() == static_cast<int>(width_*height_*4))
 			{
@@ -519,10 +524,9 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 
 safe_ptr<core::frame_producer> create_swf_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params) 
+		const core::parameters& params) 
 {
-	auto filename = env::media_folder() + L"\\" + params.at(0) + L".swf";
+	auto filename = env::media_folder() + L"\\" + params.at_original(0) + L".swf";
 	
 	if(!boost::filesystem::exists(filename))
 		return core::frame_producer::empty();

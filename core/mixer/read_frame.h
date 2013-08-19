@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -54,6 +54,7 @@ public:
 
 	virtual size_t image_size() const;
 	virtual int num_channels() const;
+	virtual int64_t get_age_millis() const;
 	virtual const multichannel_view<const int32_t, boost::iterator_range<const int32_t*>::const_iterator> multichannel_view() const;
 		
 private:

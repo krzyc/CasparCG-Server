@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -23,6 +23,37 @@
 
 namespace caspar { namespace core {
 		
+struct chroma
+{
+    enum type
+    {
+        none     = 0x000000,
+        red      = 0xff0000,
+        yellow   = 0xffff00,
+        green    = 0x00ff00,
+        torquise = 0x00ffff,
+        blue     = 0x0000ff,
+        magenta  = 0xff00ff
+    };
+
+    type	key;
+    float	threshold;
+    float	softness;
+	float	spill;
+    float	blur;
+    bool	show_mask;
+
+    chroma(type m = none)
+		: key(m)
+		, threshold(0.0)
+		, softness(0.0)
+		, spill(0.0)
+		, blur(0.0)
+		, show_mask(false)
+	{
+	}
+};
+
 struct blend_mode
 {
 	enum type 
@@ -59,8 +90,17 @@ struct blend_mode
 		mix,
 		blend_mode_count 
 	};
+
+	type	mode;
+	chroma	chroma;
+
+	blend_mode(type t = normal) : mode(t) {}
 };
 
 blend_mode::type get_blend_mode(const std::wstring& str);
+std::wstring get_blend_mode(blend_mode::type mode);
+
+chroma::type get_chroma_mode(const std::wstring& str);
+std::wstring get_chroma_mode(chroma::type type);
 
 }}

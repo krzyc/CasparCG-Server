@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -30,6 +30,7 @@ namespace caspar {
 
 namespace core {
 
+class parameters;
 struct frame_producer;
 struct frame_factory;
 
@@ -37,13 +38,9 @@ struct frame_factory;
 	
 namespace ffmpeg {
 
-safe_ptr<core::frame_producer> create_producer(
-		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params);
+safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params);
 safe_ptr<core::frame_producer> create_thumbnail_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params);
+		const core::parameters& params);
 
 }}

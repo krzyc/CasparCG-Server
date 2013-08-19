@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -34,6 +34,7 @@
 namespace caspar { namespace core {
 	
 class read_frame;
+class parameters;
 struct video_format_desc;
 
 struct frame_consumer : boost::noncopyable
@@ -42,6 +43,7 @@ struct frame_consumer : boost::noncopyable
 	
 	virtual boost::unique_future<bool> send(const safe_ptr<read_frame>& frame) = 0;
 	virtual void initialize(const video_format_desc& format_desc, int channel_index) = 0;
+	virtual int64_t presentation_frame_age_millis() const = 0;
 	virtual std::wstring print() const = 0;
 	virtual boost::property_tree::wptree info() const = 0;
 	virtual bool has_synchronization_clock() const {return true;}
@@ -53,9 +55,9 @@ struct frame_consumer : boost::noncopyable
 
 safe_ptr<frame_consumer> create_consumer_cadence_guard(const safe_ptr<frame_consumer>& consumer);
 
-typedef std::function<safe_ptr<core::frame_consumer>(const std::vector<std::wstring>&)> consumer_factory_t;
+typedef std::function<safe_ptr<core::frame_consumer>(const core::parameters&)> consumer_factory_t;
 
 void register_consumer_factory(const consumer_factory_t& factory);
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params);
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params);
 
 }}

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -89,7 +89,7 @@ void AMCPProtocolStrategy::Parse(const TCHAR* pData, int charCount, ClientInfoPt
 	size_t oldLength = pClientInfo->currentMessage_.length();
 
 	if(pClientInfo->currentMessage_.capacity() < (oldLength + charCount))
-		pClientInfo->currentMessage_.reserve(8192 * 4);
+		pClientInfo->currentMessage_.reserve(oldLength + 8192 * 4);
 
 	pClientInfo->currentMessage_.append(pData, charCount);
 
@@ -318,6 +318,7 @@ AMCPCommandPtr AMCPProtocolStrategy::CommandFactory(const std::wstring& str)
 	else if(s == TEXT("CHANNEL_GRID"))	return std::make_shared<ChannelGridCommand>();
 	else if(s == TEXT("CALL"))			return std::make_shared<CallCommand>();
 	else if(s == TEXT("SWAP"))			return std::make_shared<SwapCommand>();
+	else if(s == TEXT("ROUTE"))			return std::make_shared<RouteCommand>();
 	else if(s == TEXT("LOAD"))			return std::make_shared<LoadCommand>();
 	else if(s == TEXT("LOADBG"))		return std::make_shared<LoadbgCommand>();
 	else if(s == TEXT("ADD"))			return std::make_shared<AddCommand>();

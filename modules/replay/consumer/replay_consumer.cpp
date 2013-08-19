@@ -33,6 +33,7 @@
 #include <boost/timer.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
@@ -72,6 +73,8 @@ struct replay_consumer : public core::frame_consumer
 	mjpeg_process_mode						mode_;
 	boost::posix_time::ptime				start_timecode_;
 
+	tbb::atomic<int64_t>					current_encoding_delay_;
+
 
 #define REPLAY_FRAME_BUFFER					32
 #define REPLAY_JPEG_QUALITY					90
@@ -88,6 +91,7 @@ public:
 		, encode_executor_(print())
 	{
 		framenum_ = 0;
+		current_encoding_delay_ = 0;
 
 		encode_executor_.set_capacity(REPLAY_FRAME_BUFFER);
 
@@ -204,6 +208,8 @@ public:
 					graph_->set_text(print());
 					graph_->set_value("frame-time", frame_timer.elapsed()*0.5*format_desc_.fps);
 
+					current_encoding_delay_ = frame->get_age_millis();
+
 					/* monitor_subject_	<< core::monitor::message("/profiler/time")		% frame_timer.elapsed() % (1.0/format_desc_.fps);			
 								
 					monitor_subject_	<< core::monitor::message("/file/time")			% (framenum_ / format_desc_.fps) 
@@ -221,6 +227,11 @@ public:
 		}
 
 		return wrap_as_future(true);
+	}
+
+	virtual int64_t presentation_frame_age_millis() const override
+	{
+		return file_open_ ? this->current_encoding_delay_ : 0;
 	}
 
 	virtual bool has_synchronization_clock() const override
@@ -255,7 +266,7 @@ public:
 
 	~replay_consumer()
 	{
-		encode_executor_.stop_execute_rest();
+		encode_executor_.stop();
 		encode_executor_.join();
 
 		if (output_file_ != NULL)
@@ -268,7 +279,7 @@ public:
 	}
 };
 
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params)
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
 	if(params.size() < 1 || params[0] != L"REPLAY")
 		return core::frame_consumer::empty();

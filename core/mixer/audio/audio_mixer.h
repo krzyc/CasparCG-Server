@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -55,6 +55,7 @@ public:
 	virtual void visit(core::write_frame& frame);
 	virtual void end();
 
+	float get_master_volume() const;
 	void set_master_volume(float volume);
 
 	audio_buffer operator()(const video_format_desc& format_desc, const channel_layout& layout);

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -27,14 +27,13 @@
 #include <common/utility/string.h>
 #include <common/concurrency/future_util.h>
 
+#include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread.hpp>
-
-#include <tbb/concurrent_queue.h>
 
 #include <FreeImage.h>
 #include <vector>
@@ -77,6 +76,11 @@ public:
 	virtual void initialize(const core::video_format_desc& format_desc, int) override
 	{
 		format_desc_ = format_desc;
+	}
+
+	virtual int64_t presentation_frame_age_millis() const override
+	{
+		return 0;
 	}
 	
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
@@ -133,15 +137,15 @@ public:
 	}
 };
 
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params)
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
-	if(params.size() < 1 || params[0] != L"IMAGE")
+	if(params.size() < 1 || params.at(0) != L"IMAGE")
 		return core::frame_consumer::empty();
 
 	std::wstring filename;
 
 	if (params.size() > 1)
-		filename = params[1];
+		filename = params.at(1);
 
 	return make_safe<image_consumer>(filename);
 }

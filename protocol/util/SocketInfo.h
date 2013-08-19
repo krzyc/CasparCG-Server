@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -45,6 +45,7 @@ public:
 	void Send(const std::wstring& data);
 	void Disconnect();
 	virtual std::wstring print() const override {return host_;}
+	void bind_to_lifecycle(const std::shared_ptr<void>& lifecycle_bound);
 
 	SOCKET			socket_;
 	HANDLE			event_;
@@ -54,6 +55,7 @@ private:
 	friend class AsyncEventServer;
 	std::queue<std::wstring> sendQueue_;
 	AsyncEventServer* pServer_;
+	std::vector<std::shared_ptr<void>> lifecycle_bound_items_;
 
 	std::vector<char> currentlySending_;
 	unsigned int currentlySendingOffset_;

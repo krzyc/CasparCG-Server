@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -64,6 +64,7 @@ public:
 	safe_ptr<basic_frame> receive(int hints); // nothrow
 
 	boost::property_tree::wptree info() const;
+	boost::property_tree::wptree delay_info() const;
 	
 	monitor::source& monitor_output();
 private:

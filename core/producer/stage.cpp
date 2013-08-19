@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -31,6 +31,8 @@
 #include <common/concurrency/executor.h>
 
 #include <core/producer/frame/frame_transform.h>
+#include <core/consumer/frame_consumer.h>
+#include <core/consumer/write_frame_consumer.h>
 
 #include <boost/foreach.hpp>
 #include <boost/timer.hpp>
@@ -43,7 +45,7 @@
 #include <map>
 
 namespace caspar { namespace core {
-	
+
 template<typename T>
 class tweened_transform
 {
@@ -98,10 +100,13 @@ struct stage::implementation : public std::enable_shared_from_this<implementatio
 																				 
 	std::map<int, std::shared_ptr<layer>>										 layers_;	
 	tbb::concurrent_unordered_map<int, tweened_transform<core::frame_transform>> transforms_;	
+	// map of layer -> map of tokens (src ref) -> layer_consumer
+	std::map<int, std::map<void*, std::shared_ptr<write_frame_consumer>>>		 layer_consumers_;
 	
 	monitor::subject															 monitor_subject_;
 
 	executor																	 executor_;
+
 public:
 	implementation(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<stage::target_t>& target, const video_format_desc& format_desc)  
 		: graph_(graph)
@@ -119,7 +124,28 @@ public:
 		std::weak_ptr<implementation> self = shared_from_this();
 		executor_.begin_invoke([=]{tick(self);});
 	}
-							
+	
+	void add_layer_consumer(void* token, int layer, const std::shared_ptr<write_frame_consumer>& layer_consumer)
+	{
+		executor_.begin_invoke([=]
+		{
+			layer_consumers_[layer][token] = layer_consumer;
+		}, high_priority);
+	}
+
+	void remove_layer_consumer(void* token, int layer)
+	{
+		executor_.begin_invoke([=]
+		{
+			auto& layer_map = layer_consumers_[layer];
+			layer_map.erase(token);
+			if (layer_map.empty())
+			{
+				layer_consumers_.erase(layer);
+			}
+		}, high_priority);
+	}
+
 	void tick(const std::weak_ptr<implementation>& self)
 	{		
 		try
@@ -146,7 +172,16 @@ public:
 					hints |= frame_producer::ALPHA_HINT;
 
 				auto frame = layer.second->receive(hints);	
-				
+				auto layer_consumers_it = layer_consumers_.find(layer.first);
+				if (layer_consumers_it != layer_consumers_.end())
+				{
+					auto consumer_it = (*layer_consumers_it).second | boost::adaptors::map_values;
+					tbb::parallel_for_each(consumer_it.begin(), consumer_it.end(), [&](decltype(consumer_it[0]) layer_consumer) 
+					{
+						layer_consumer->send(frame);
+					});
+				}
+
 				auto frame1 = make_safe<core::basic_frame>(frame);
 				frame1->get_frame_transform() = transform;
 
@@ -161,7 +196,7 @@ public:
 			});
 			
 			graph_->set_value("produce-time", produce_timer_.elapsed()*format_desc_.fps*0.5);
-			
+
 			std::shared_ptr<void> ticket(nullptr, [self](void*)
 			{
 				auto self2 = self.lock();
@@ -229,6 +264,14 @@ public:
 		{
 			transforms_.clear();
 		}, high_priority);
+	}
+
+	frame_transform get_current_transform(int index)
+	{
+		return executor_.invoke([=]
+		{
+			return transforms_[index].fetch();
+		});
 	}
 		
 	layer& get_layer(int index)
@@ -411,6 +454,26 @@ public:
 			return get_layer(index).info();
 		}, high_priority));
 	}
+
+	boost::unique_future<boost::property_tree::wptree> delay_info()
+	{
+		return std::move(executor_.begin_invoke([this]() -> boost::property_tree::wptree
+		{
+			boost::property_tree::wptree info;
+			BOOST_FOREACH(auto& layer, layers_)			
+				info.add_child(L"layer", layer.second->delay_info())
+					.add(L"index", layer.first);	
+			return info;
+		}, high_priority));
+	}
+
+	boost::unique_future<boost::property_tree::wptree> delay_info(int index)
+	{
+		return std::move(executor_.begin_invoke([=]() -> boost::property_tree::wptree
+		{
+			return get_layer(index).delay_info();
+		}, high_priority));
+	}
 };
 
 stage::stage(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<target_t>& target, const video_format_desc& format_desc) 
@@ -419,6 +482,7 @@ void stage::apply_transforms(const std::vector<stage::transform_tuple_t>& transf
 void stage::apply_transform(int index, const std::function<core::frame_transform(core::frame_transform)>& transform, unsigned int mix_duration, const std::wstring& tween){impl_->apply_transform(index, transform, mix_duration, tween);}
 void stage::clear_transforms(int index){impl_->clear_transforms(index);}
 void stage::clear_transforms(){impl_->clear_transforms();}
+frame_transform stage::get_current_transform(int index) { return impl_->get_current_transform(index); }
 void stage::spawn_token(){impl_->spawn_token();}
 void stage::load(int index, const safe_ptr<frame_producer>& producer, bool preview, int auto_play_delta){impl_->load(index, producer, preview, auto_play_delta);}
 void stage::pause(int index){impl_->pause(index);}
@@ -429,11 +493,15 @@ void stage::clear(){impl_->clear();}
 void stage::swap_layers(const safe_ptr<stage>& other){impl_->swap_layers(*other);}
 void stage::swap_layer(int index, size_t other_index){impl_->swap_layer(index, other_index);}
 void stage::swap_layer(int index, size_t other_index, const safe_ptr<stage>& other){impl_->swap_layer(index, other_index, *other);}
+void stage::add_layer_consumer(void* token, int layer, const std::shared_ptr<write_frame_consumer>& layer_consumer){impl_->add_layer_consumer(token, layer, layer_consumer);}
+void stage::remove_layer_consumer(void* token, int layer){impl_->remove_layer_consumer(token, layer);}
 boost::unique_future<safe_ptr<frame_producer>> stage::foreground(int index) {return impl_->foreground(index);}
 boost::unique_future<safe_ptr<frame_producer>> stage::background(int index) {return impl_->background(index);}
 boost::unique_future<std::wstring> stage::call(int index, bool foreground, const std::wstring& param){return impl_->call(index, foreground, param);}
 void stage::set_video_format_desc(const video_format_desc& format_desc){impl_->set_video_format_desc(format_desc);}
 boost::unique_future<boost::property_tree::wptree> stage::info() const{return impl_->info();}
 boost::unique_future<boost::property_tree::wptree> stage::info(int index) const{return impl_->info(index);}
+boost::unique_future<boost::property_tree::wptree> stage::delay_info() const{return impl_->delay_info();}
+boost::unique_future<boost::property_tree::wptree> stage::delay_info(int index) const{return impl_->delay_info(index);}
 monitor::source& stage::monitor_output(){return impl_->monitor_subject_;}
 }}

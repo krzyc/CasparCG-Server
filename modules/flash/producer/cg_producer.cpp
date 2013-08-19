@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -27,6 +27,7 @@
 
 #include <common/env.h>
 
+#include <core/parameters/parameters.h>
 #include <core/mixer/mixer.h>
 
 #include <boost/filesystem.hpp>
@@ -222,7 +223,7 @@ safe_ptr<cg_producer> get_default_cg_producer(const safe_ptr<core::video_channel
 
 safe_ptr<core::frame_producer> create_cg_producer_and_autoplay_file(
 		const safe_ptr<core::frame_factory>& frame_factory, 
-		const std::vector<std::wstring>& params,
+		const core::parameters& params,
 		const std::wstring& filename) 
 {
 	if(!boost::filesystem::exists(filename))
@@ -241,16 +242,14 @@ safe_ptr<core::frame_producer> create_cg_producer_and_autoplay_file(
 
 safe_ptr<core::frame_producer> create_ct_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params) 
+		const core::parameters& params) 
 {
-	return create_cg_producer_and_autoplay_file(frame_factory, params, env::media_folder() + L"\\" + params[0] + L".ct");
+	return create_cg_producer_and_autoplay_file(frame_factory, params, env::media_folder() + L"\\" + params.at_original(0) + L".ct");
 }
 
 safe_ptr<core::frame_producer> create_cg_producer(
 		const safe_ptr<core::frame_factory>& frame_factory,
-		const std::vector<std::wstring>& params,
-		const std::vector<std::wstring>& original_case_params) 
+		const core::parameters& params) 
 {
 	if(params.empty() || params.at(0) != L"[CG]")
 		return core::frame_producer::empty();

@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -36,6 +36,7 @@
 
 #include <ffmpeg/producer/filter/filter.h>
 
+#include <core/parameters/parameters.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 #include <core/consumer/frame_consumer.h>
@@ -142,6 +143,7 @@ struct ogl_consumer : boost::noncopyable
 
 	boost::thread			thread_;
 	tbb::atomic<bool>		is_running_;
+	tbb::atomic<int64_t>	current_presentation_age_;
 	
 	ffmpeg::filter			filter_;
 public:
@@ -196,6 +198,7 @@ public:
 		screen_height_	= config_.windowed ? square_height_ : devmode.dmPelsHeight;
 
 		is_running_ = true;
+		current_presentation_age_ = 0;
 		thread_ = boost::thread([this]{run();});
 	}
 	
@@ -381,6 +384,8 @@ public:
 
 			wait_for_vblank_and_display(); // field2
 		}
+
+		current_presentation_age_ = frame->get_age_millis();
 	}
 
 	void render(safe_ptr<AVFrame> av_frame, int image_data_size)
@@ -540,7 +545,12 @@ public:
 		consumer_.reset(new ogl_consumer(config_, format_desc, channel_index));
 		CASPAR_LOG(info) << print() << L" Successfully Initialized.";	
 	}
-	
+
+	virtual int64_t presentation_frame_age_millis() const override
+	{
+		return consumer_ ? consumer_->current_presentation_age_ : 0;
+	}
+
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
 	{
 		return consumer_->send(frame);
@@ -577,7 +587,7 @@ public:
 	}
 };	
 
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params)
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
 	if(params.size() < 1 || params[0] != L"SCREEN")
 		return core::frame_consumer::empty();
@@ -585,18 +595,13 @@ safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& 
 	configuration config;
 		
 	if(params.size() > 1)
-		config.screen_index = lexical_cast_or_default<int>(params[1], config.screen_index);
+		config.screen_index =
+				lexical_cast_or_default<int>(params[1], config.screen_index);
 
-	auto device_it = std::find(params.begin(), params.end(), L"DEVICE");
-	if(device_it != params.end() && ++device_it != params.end())
-		config.screen_index = boost::lexical_cast<int>(*device_it);
-		
-	config.windowed = std::find(params.begin(), params.end(), L"FULLSCREEN") == params.end();
-	config.key_only = std::find(params.begin(), params.end(), L"KEY_ONLY") != params.end();
-
-	auto name_it	= std::find(params.begin(), params.end(), L"NAME");
-	if(name_it != params.end() && ++name_it != params.end())
-		config.name = *name_it;
+	config.screen_index = params.get(L"DEVICE", config.screen_index);
+	config.windowed = !params.has(L"FULLSCREEN");
+	config.key_only = params.has(L"KEY_ONLY");
+	config.name = params.get(L"NAME", config.name);
 
 	return make_safe<ogl_consumer_proxy>(config);
 }

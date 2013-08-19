@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -27,6 +27,7 @@
 #include <common/memory/safe_ptr.h>
 #include <common/exception/exceptions.h>
 #include <common/concurrency/future_util.h>
+#include <core/parameters/parameters.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 
@@ -41,7 +42,7 @@ void register_consumer_factory(const consumer_factory_t& factory)
 	g_factories.push_back(factory);
 }
 
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params)
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
 	if(params.empty())
 		BOOST_THROW_EXCEPTION(invalid_argument() << arg_name_info("params") << arg_value_info(""));
@@ -85,6 +86,11 @@ public:
 		sync_buffer_	= boost::circular_buffer<size_t>(format_desc.audio_cadence.size());
 		format_desc_	= format_desc;
 		consumer_->initialize(format_desc, channel_index);
+	}
+
+	virtual int64_t presentation_frame_age_millis() const
+	{
+		return consumer_->presentation_frame_age_millis();
 	}
 
 	virtual boost::unique_future<bool> send(const safe_ptr<read_frame>& frame) override
@@ -145,6 +151,7 @@ const safe_ptr<frame_consumer>& frame_consumer::empty()
 	{
 		virtual boost::unique_future<bool> send(const safe_ptr<read_frame>&) override { return caspar::wrap_as_future(false); }
 		virtual void initialize(const video_format_desc&, int) override{}
+		virtual int64_t presentation_frame_age_millis() const { return 0; }
 		virtual std::wstring print() const override {return L"empty";}
 		virtual bool has_synchronization_clock() const override {return false;}
 		virtual size_t buffer_depth() const override {return 0;};

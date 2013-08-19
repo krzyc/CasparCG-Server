@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -24,13 +24,13 @@
 #include "../util/clientinfo.h"
 
 #include <core/consumer/frame_consumer.h>
+#include <core/parameters/parameters.h>
 #include <core/video_channel.h>
 #include <core/thumbnail_generator.h>
 
 #include <boost/algorithm/string.hpp>
 
-namespace caspar { namespace protocol {
-namespace amcp {
+namespace caspar { namespace protocol { namespace amcp {
 
 	enum AMCPCommandScheduling
 	{
@@ -55,6 +55,10 @@ namespace amcp {
 		void SendReply();
 
 		void AddParameter(const std::wstring& param){_parameters.push_back(param);}
+
+		void SetParameters(const core::parameters& p) {
+			_parameters = p;
+		}
 
 		void SetClientInfo(IO::ClientInfoPtr& s){pClientInfo_ = s;}
 		IO::ClientInfoPtr GetClientInfo(){return pClientInfo_;}
@@ -90,8 +94,7 @@ namespace amcp {
 		void SetReplyString(const std::wstring& str){replyString_ = str;}
 
 	protected:
-		std::vector<std::wstring> _parameters;
-		std::vector<std::wstring> _parameters2;
+		core::parameters _parameters;
 
 	private:
 		unsigned int channelIndex_;
@@ -113,9 +116,7 @@ namespace amcp {
 	public:
 		virtual bool Execute()
 		{
-			_parameters2 = _parameters;
-			for(size_t n = 0; n < _parameters.size(); ++n)
-				_parameters[n] = boost::to_upper_copy(_parameters[n]);
+			_parameters.to_upper();
 			return (TNeedChannel && !GetChannel()) || _parameters.size() < TMinParameters ? false : DoExecute();
 		}
 
@@ -124,6 +125,7 @@ namespace amcp {
 		virtual int GetMinimumParameters(){return TMinParameters;}
 	protected:
 		~AMCPCommandBase(){}
+
 	private:
 		virtual bool DoExecute() = 0;
 	};	

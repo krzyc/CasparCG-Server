@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -37,6 +37,7 @@ struct layer::implementation
 	int64_t						frame_number_;
 	int32_t						auto_play_delta_;
 	bool						is_paused_;
+	int64_t						current_frame_age_;
 	monitor::subject			monitor_subject_;
 
 public:
@@ -100,13 +101,15 @@ public:
 		frame_number_		= 0;
 		auto_play_delta_	= -1;
 
-		is_paused_			= true;
+		is_paused_			= false;
 	}
 		
 	safe_ptr<basic_frame> receive(int hints)
 	{		
 		try
 		{
+			monitor_subject_ << monitor::message("/paused") % is_paused_;
+
 			if(is_paused_)
 			{
 				if(foreground_->last_frame() == basic_frame::empty())
@@ -131,7 +134,9 @@ public:
 				play();
 				return receive(hints);
 			}
-				
+
+			current_frame_age_ = frame->get_and_record_age_millis();
+
 			return frame;
 		}
 		catch(...)
@@ -163,8 +168,17 @@ public:
 
 		info.add(L"nb_frames",	 nb_frames == std::numeric_limits<int64_t>::max() ? -1 : nb_frames);
 		info.add(L"frames-left", nb_frames == std::numeric_limits<int64_t>::max() ? -1 : (foreground_->nb_frames() - frame_number_ - auto_play_delta_));
+		info.add(L"frame-age", current_frame_age_);
 		info.add_child(L"foreground.producer", foreground_->info());
 		info.add_child(L"background.producer", background_->info());
+		return info;
+	}
+
+	boost::property_tree::wptree delay_info() const
+	{
+		boost::property_tree::wptree info;
+		info.add(L"producer", foreground_->print());
+		info.add(L"frame-age", current_frame_age_);
 		return info;
 	}
 
@@ -199,5 +213,6 @@ safe_ptr<frame_producer> layer::background() const { return impl_->background_;}
 bool layer::empty() const {return impl_->empty();}
 boost::unique_future<std::wstring> layer::call(bool foreground, const std::wstring& param){return impl_->call(foreground, param);}
 boost::property_tree::wptree layer::info() const{return impl_->info();}
+boost::property_tree::wptree layer::delay_info() const{return impl_->delay_info();}
 monitor::source& layer::monitor_output(){return impl_->monitor_subject_;}
 }}

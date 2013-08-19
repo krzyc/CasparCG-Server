@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -127,6 +127,24 @@ std::string get_vertex()
 	"}																					\n";
 }
 
+std::string get_chroma_func()
+{
+        return get_chroma_glsl()
+
+        +
+
+		"vec4 chroma_key(vec4 c)                                                \n"
+		"{                                                                      \n"
+		"   switch (chroma_mode)                                                \n"
+		"   {                                                                   \n"
+		"   case 0: return c;                                                   \n"
+		"   case 1: return ChromaOnGreen(c.bgra).bgra;                          \n"
+		"   case 2: return ChromaOnBlue(c.bgra).bgra;                           \n"
+		"   }                                                                   \n"
+		"   return c;                                                           \n"
+		"}                                                                      \n";
+}
+
 std::string get_fragment(bool blend_modes)
 {
 	return
@@ -157,10 +175,21 @@ std::string get_fragment(bool blend_modes)
 	"uniform float		sat;															\n"
 	"uniform float		con;															\n"
 	"																					\n"	
+	"uniform bool		post_processing;												\n"
+	"uniform bool		straighten_alpha;												\n"
+	"																					\n"	
+    "uniform int        chroma_mode;                                                    \n"
+    "uniform vec2       chroma_blend;                                                   \n"
+    "uniform float      chroma_spill;                                                   \n"
 
 	+
 		
 	(blend_modes ? get_blend_color_func() : get_simple_blend_color_func())
+
+
+    +
+
+    get_chroma_func()
 
 	+
 	
@@ -231,13 +260,30 @@ std::string get_fragment(bool blend_modes)
 	"	return vec4(0.0, 0.0, 0.0, 0.0);												\n"
 	"}																					\n"
 	"																					\n"
+	"vec4 post_process()																\n"
+	"{																					\n"
+	"	vec4 color = texture2D(background, gl_TexCoord[0].st).bgra;						\n"
+	"																					\n"
+	"	if (straighten_alpha && color.a > 0.0 && color.a != 1.0)						\n"
+	"		color.rgb /= color.a;														\n"
+	"																					\n"
+	"	return color;																	\n"
+	"}																					\n"
+	"																					\n"
 	"void main()																		\n"
 	"{																					\n"
+	"	if (post_processing)															\n"
+	"	{																				\n"
+	"		gl_FragColor = post_process().bgra;											\n"
+	"		return;																		\n"
+	"	}																				\n"
+	"																					\n"
 	"	vec4 color = get_rgba_color();													\n"
+	"   color = chroma_key(color);                                                      \n"
 	"   if(levels)																		\n"
 	"		color.rgb = LevelsControl(color.rgb, min_input, max_input, gamma, min_output, max_output); \n"
 	"	if(csb)																			\n"
-	"		color.rgb = ContrastSaturationBrightness(color.rgb, brt, sat, con);			\n"
+	"		color.rgb = ContrastSaturationBrightness(color, brt, sat, con);		\n"
 	"	if(has_local_key)																\n"
 	"		color *= texture2D(local_key, gl_TexCoord[1].st).r;							\n"
 	"	if(has_layer_key)																\n"

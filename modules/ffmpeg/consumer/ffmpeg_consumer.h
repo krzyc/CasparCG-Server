@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -30,12 +30,12 @@ namespace caspar {
 
 namespace core {
 	struct frame_consumer;
+	class parameters;
 }
 
 namespace ffmpeg {
-
 	
-safe_ptr<core::frame_consumer> create_consumer(const std::vector<std::wstring>& params);
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params);
 safe_ptr<core::frame_consumer> create_consumer(const boost::property_tree::wptree& ptree);
 
 }}

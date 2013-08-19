@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -95,7 +95,7 @@ public:
 		{			
 			if(codec_context_->codec->capabilities & CODEC_CAP_DELAY)
 			{
-				auto video = decode(*packet);
+				auto video = decode(packet);
 				if(video)
 					return video;
 			}
@@ -107,15 +107,15 @@ public:
 		}
 			
 		packets_.pop();
-		return decode(*packet);
+		return decode(packet);
 	}
 
-	std::shared_ptr<AVFrame> decode(AVPacket& pkt)
+	std::shared_ptr<AVFrame> decode(safe_ptr<AVPacket> pkt)
 	{
 		std::shared_ptr<AVFrame> decoded_frame(avcodec_alloc_frame(), av_free);
 
 		int frame_finished = 0;
-		THROW_ON_ERROR2(avcodec_decode_video2(codec_context_.get(), decoded_frame.get(), &frame_finished, &pkt), "[video_decocer]");
+		THROW_ON_ERROR2(avcodec_decode_video2(codec_context_.get(), decoded_frame.get(), &frame_finished, pkt.get()), "[video_decoder]");
 		
 		// If a decoder consumes less then the whole packet then something is wrong
 		// that might be just harmless padding at the end, or a problem with the
@@ -131,7 +131,10 @@ public:
 		
 		++file_frame_number_;
 
-		return decoded_frame;
+		// This ties the life of the decoded_frame to the packet that it came from. For the
+		// current version of ffmpeg (0.8 or c17808c) the RAW_VIDEO codec returns frame data
+		// owned by the packet.
+		return std::shared_ptr<AVFrame>(decoded_frame.get(), [decoded_frame, pkt](AVFrame*){});
 	}
 	
 	bool ready() const

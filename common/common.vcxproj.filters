@@ -139,9 +139,6 @@
     <ClInclude Include="concurrency\target.h">
       <Filter>source\concurrency</Filter>
     </ClInclude>
-    <ClInclude Include="utility\param.h">
-      <Filter>source\utility</Filter>
-    </ClInclude>
     <ClInclude Include="utility\utf8conv.h">
       <Filter>source\utility</Filter>
     </ClInclude>
@@ -165,6 +162,9 @@
     </ClInclude>
     <ClInclude Include="utility\iterator.h">
       <Filter>source\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="memory\endian.h">
+      <Filter>source\memory</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

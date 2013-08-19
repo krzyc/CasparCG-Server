@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -67,13 +67,20 @@ public:
 	core::video_format_desc get_video_format_desc() const; // nothrow
 	void set_video_format_desc(const video_format_desc& format_desc);
 	
+	blend_mode::type get_blend_mode(int index);
 	void set_blend_mode(int index, blend_mode::type value);
+	chroma get_chroma(int index);
+    void set_chroma(int index, const chroma& value);
 	void clear_blend_mode(int index);
 	void clear_blend_modes();
+	void set_straight_alpha_output(bool value);
+	bool get_straight_alpha_output();
 
+	float get_master_volume();
 	void set_master_volume(float volume);
 
 	boost::unique_future<boost::property_tree::wptree> info() const;
+	boost::unique_future<boost::property_tree::wptree> delay_info() const;
 	
 private:
 	struct implementation;

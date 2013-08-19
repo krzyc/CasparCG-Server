@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -73,6 +73,13 @@ AsyncEventServer::~AsyncEventServer() {
 
 void AsyncEventServer::SetClientDisconnectHandler(ClientDisconnectEvent handler) {
 	socketInfoCollection_.onSocketInfoRemoved = handler;
+}
+
+void AsyncEventServer::add_lifecycle_factory(const lifecycle_factory_t& factory)
+{
+	tbb::mutex::scoped_lock lock(mutex_);
+
+	lifecycle_factories_.push_back(factory);
 }
 
 //////////////////////////////
@@ -282,8 +289,20 @@ bool AsyncEventServer::OnAccept(SocketInfoPtr& pSI) {
 	}
 
 	TCHAR addressBuffer[32];
-	MultiByteToWideChar(CP_ACP, 0, inet_ntoa(clientAddr.sin_addr), -1, addressBuffer, 32);
+	auto ipv4_address = inet_ntoa(clientAddr.sin_addr);
+	MultiByteToWideChar(CP_ACP, 0, ipv4_address, -1, addressBuffer, 32);
 	pClientSocket->host_ = addressBuffer;
+
+	{
+		tbb::mutex::scoped_lock lock(mutex_);
+
+		BOOST_FOREACH(auto& lifecycle_factory, lifecycle_factories_)
+		{
+			auto lifecycle_bound = lifecycle_factory(ipv4_address);
+
+			pClientSocket->bind_to_lifecycle(lifecycle_bound);
+		}
+	}
 
 	socketInfoCollection_.AddSocketInfo(pClientSocket);
 

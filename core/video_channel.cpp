@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -75,7 +75,7 @@ public:
 
 		CASPAR_LOG(info) << print() << " Successfully Initialized.";
 	}
-	
+
 	void set_video_format_desc(const video_format_desc& format_desc)
 	{
 		if(format_desc.format == core::video_format::invalid)
@@ -111,16 +111,38 @@ public:
 		auto mixer_info  = mixer_->info();
 		auto output_info = output_->info();
 
-		stage_info.timed_wait(boost::posix_time::seconds(2));
-		mixer_info.timed_wait(boost::posix_time::seconds(2));
-		output_info.timed_wait(boost::posix_time::seconds(2));
-		
 		info.add(L"video-mode", format_desc_.name);
-		info.add_child(L"stage", stage_info.get());
-		info.add_child(L"mixer", mixer_info.get());
-		info.add_child(L"output", output_info.get());
+
+		if (stage_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"stage", stage_info.get());
+
+		if (mixer_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"mixer", mixer_info.get());
+
+		if (output_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"output", output_info.get());
    
 		return info;			   
+	}
+
+	boost::property_tree::wptree delay_info() const
+	{
+		boost::property_tree::wptree info;
+
+		auto stage_info  = stage_->delay_info();
+		auto mixer_info  = mixer_->delay_info();
+		auto output_info = output_->delay_info();
+
+		if (stage_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"layers", stage_info.get());
+
+		if (mixer_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"mix-time", mixer_info.get());
+
+		if (output_info.timed_wait(boost::posix_time::seconds(2)))
+			info.add_child(L"consumers", output_info.get());
+
+		return info;
 	}
 };
 
@@ -134,4 +156,5 @@ void video_channel::set_video_format_desc(const video_format_desc& format_desc){
 boost::property_tree::wptree video_channel::info() const{return impl_->info();}
 int video_channel::index() const {return impl_->index_;}
 monitor::source& video_channel::monitor_output(){return impl_->monitor_subject_;}
+boost::property_tree::wptree video_channel::delay_info() const { return impl_->delay_info(); }
 }}

@@ -128,11 +128,11 @@
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)tmp\$(Configuration)\</IntDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Profile|Win32'">$(SolutionDir)tmp\$(Configuration)\</IntDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Develop|Win32'">$(SolutionDir)tmp\$(Configuration)\</IntDir>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\libjpeg-turbo\include\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;$(IncludePath)</IncludePath>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\libjpeg-turbo\include\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;$(IncludePath)</IncludePath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;$(IncludePath)</IncludePath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;..\dependencies\libjpeg-turbo\include;$(IncludePath)</IncludePath>
     <IncludePath Condition="'$(Configuration)|$(Platform)'=='Profile|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;$(IncludePath)</IncludePath>
     <IncludePath Condition="'$(Configuration)|$(Platform)'=='Develop|Win32'">..\dependencies\BluefishSDK_V5_10_0_42\Inc\;..\dependencies\boost\;..\dependencies\ffmpeg 0.8\include\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\include;..\dependencies\SFML-1.6\include\;..\dependencies\tbb\include\;$(IncludePath)</IncludePath>
-    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\dependencies\libjpeg-turbo\lib\;C:\Program\Microsoft DirectX SDK (June 2010)\Lib\x86;..\dependencies\BluefishSDK_V5_10_0_42\Lib\;..\dependencies\boost\stage\lib\;..\dependencies\ffmpeg 0.8\lib\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\lib;..\dependencies\SFML-1.6\lib\;..\dependencies\tbb\lib\ia32\vc10\;..\dependencies\zlib\lib;$(LibraryPath)</LibraryPath>
+    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">C:\Program\Microsoft DirectX SDK (June 2010)\Lib\x86;..\dependencies\BluefishSDK_V5_10_0_42\Lib\;..\dependencies\boost\stage\lib\;..\dependencies\ffmpeg 0.8\lib\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\lib;..\dependencies\SFML-1.6\lib\;..\dependencies\tbb\lib\ia32\vc10\;..\dependencies\zlib\lib;$(LibraryPath)</LibraryPath>
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\dependencies\libjpeg-turbo\lib\;C:\Program\Microsoft DirectX SDK (June 2010)\Lib\x86;..\dependencies\BluefishSDK_V5_10_0_42\Lib\;..\dependencies\boost\stage\lib\;..\dependencies\ffmpeg 0.8\lib\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\lib;..\dependencies\SFML-1.6\lib\;..\dependencies\tbb\lib\ia32\vc10\;..\dependencies\zlib\lib;$(LibraryPath)</LibraryPath>
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Profile|Win32'">C:\Program\Microsoft DirectX SDK (June 2010)\Lib\x86;..\dependencies\BluefishSDK_V5_10_0_42\Lib\;..\dependencies\boost\stage\lib\;..\dependencies\ffmpeg 0.8\lib\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\lib;..\dependencies\SFML-1.6\lib\;..\dependencies\tbb\lib\ia32\vc10\;..\dependencies\zlib\lib;$(LibraryPath)</LibraryPath>
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Develop|Win32'">C:\Program\Microsoft DirectX SDK (June 2010)\Lib\x86;..\dependencies\BluefishSDK_V5_10_0_42\Lib\;..\dependencies\boost\stage\lib\;..\dependencies\ffmpeg 0.8\lib\;..\dependencies\FreeImage\Dist\;..\dependencies\glew-1.6.0\lib;..\dependencies\SFML-1.6\lib\;..\dependencies\tbb\lib\ia32\vc10\;..\dependencies\zlib\lib;$(LibraryPath)</LibraryPath>
@@ -183,11 +183,11 @@
       <ForcedIncludeFiles>common/compiler/vs/disable_silly_warnings.h</ForcedIncludeFiles>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>sfml-system-d.lib;sfml-audio-d.lib;sfml-window-d.lib;sfml-graphics-d.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib;jpeg.lib</AdditionalDependencies>
+      <AdditionalDependencies>sfml-system-s-d.lib;sfml-audio-s-d.lib;sfml-window-s-d.lib;sfml-graphics-s-d.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avdevice.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib;jpeg-static.lib</AdditionalDependencies>
       <Version>
       </Version>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <IgnoreSpecificDefaultLibraries>LIBC.lib</IgnoreSpecificDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>LIBC.lib;libcmt.lib</IgnoreSpecificDefaultLibraries>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(TargetDir)$(TargetName).pdb</ProgramDatabaseFile>
       <GenerateMapFile>false</GenerateMapFile>
@@ -205,10 +205,8 @@
       <Command>copy "$(SolutionDir)dependencies\ffmpeg 0.8\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\FreeImage\Dist\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\glew-1.6.0\bin\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\libjpeg-turbo\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\tbb\bin\ia32\vc10\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\zlib\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\SFML-1.6\lib\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\SFML-1.6\extlibs\bin\*.dll" "$(OutDir)"
 copy "$(ProjectDir)casparcg.config" "$(OutDir)"
 copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
@@ -244,11 +242,11 @@ copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
       </Command>
     </PreLinkEvent>
     <Link>
-      <AdditionalDependencies>sfml-system.lib;sfml-audio.lib;sfml-window.lib;sfml-graphics.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib;jpeg.lib</AdditionalDependencies>
+      <AdditionalDependencies>sfml-system-s.lib;sfml-audio-s.lib;sfml-window-s.lib;sfml-graphics-s.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avdevice.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib;jpeg-static.lib</AdditionalDependencies>
       <Version>
       </Version>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <IgnoreSpecificDefaultLibraries>LIBC.lib</IgnoreSpecificDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>LIBC.lib;libcmt.lib</IgnoreSpecificDefaultLibraries>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <GenerateMapFile>true</GenerateMapFile>
       <MapExports>true</MapExports>
@@ -269,10 +267,8 @@ copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
       <Command>copy "$(SolutionDir)dependencies\ffmpeg 0.8\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\FreeImage\Dist\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\glew-1.6.0\bin\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\libjpeg-turbo\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\tbb\bin\ia32\vc10\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\zlib\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\SFML-1.6\lib\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\SFML-1.6\extlibs\bin\*.dll" "$(OutDir)"
 copy "$(ProjectDir)casparcg.config" "$(OutDir)"
 copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
@@ -308,11 +304,11 @@ copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
       </Command>
     </PreLinkEvent>
     <Link>
-      <AdditionalDependencies>sfml-system.lib;sfml-audio.lib;sfml-window.lib;sfml-graphics.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib</AdditionalDependencies>
+      <AdditionalDependencies>sfml-system-s.lib;sfml-audio-s.lib;sfml-window-s.lib;sfml-graphics-s.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avdevice.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib</AdditionalDependencies>
       <Version>
       </Version>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <IgnoreSpecificDefaultLibraries>LIBC.lib</IgnoreSpecificDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>LIBC.lib;libcmt.lib</IgnoreSpecificDefaultLibraries>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <GenerateMapFile>false</GenerateMapFile>
       <MapExports>false</MapExports>
@@ -334,7 +330,6 @@ copy "$(SolutionDir)dependencies\FreeImage\Dist\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\glew-1.6.0\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\tbb\bin\ia32\vc10\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\zlib\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\SFML-1.6\lib\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\SFML-1.6\extlibs\bin\*.dll" "$(OutDir)"
 copy "$(ProjectDir)casparcg.config" "$(OutDir)"
 copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
@@ -370,11 +365,11 @@ copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>
       </Command>
     </PreLinkEvent>
     <Link>
-      <AdditionalDependencies>sfml-system.lib;sfml-audio.lib;sfml-window.lib;sfml-graphics.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib</AdditionalDependencies>
+      <AdditionalDependencies>sfml-system-s.lib;sfml-audio-s.lib;sfml-window-s.lib;sfml-graphics-s.lib;OpenGL32.lib;FreeImage.lib;Winmm.lib;Ws2_32.lib;avformat.lib;avcodec.lib;avdevice.lib;avutil.lib;avfilter.lib;swscale.lib;tbb.lib;glew32.lib;zdll.lib</AdditionalDependencies>
       <Version>
       </Version>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <IgnoreSpecificDefaultLibraries>LIBC.lib</IgnoreSpecificDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>LIBC.lib;libcmt.lib</IgnoreSpecificDefaultLibraries>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <GenerateMapFile>false</GenerateMapFile>
       <MapExports>false</MapExports>
@@ -396,7 +391,6 @@ copy "$(SolutionDir)dependencies\FreeImage\Dist\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\glew-1.6.0\bin\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\tbb\bin\ia32\vc10\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\zlib\*.dll" "$(OutDir)"
-copy "$(SolutionDir)dependencies\SFML-1.6\lib\*.dll" "$(OutDir)"
 copy "$(SolutionDir)dependencies\SFML-1.6\extlibs\bin\*.dll" "$(OutDir)"
 copy "$(ProjectDir)casparcg.config" "$(OutDir)"
 copy "$(ProjectDir)casparcg_auto_restart.bat" "$(OutDir)"</Command>

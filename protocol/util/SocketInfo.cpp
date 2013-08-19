@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011 Sveriges Television AB <info@casparcg.com>
+* Copyright 2013 Sveriges Television AB http://casparcg.com/
 *
 * This file is part of CasparCG (www.casparcg.com).
 *
@@ -58,6 +58,11 @@ void SocketInfo::Send(const std::wstring& data) {
 void SocketInfo::Disconnect() {
 	if(pServer_)
 		pServer_->DisconnectClient(*this);
+}
+
+void SocketInfo::bind_to_lifecycle(const std::shared_ptr<void>& lifecycle_bound)
+{
+	lifecycle_bound_items_.push_back(lifecycle_bound);
 }
 
 }	//namespace IO
