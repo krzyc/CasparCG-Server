@@ -542,8 +542,8 @@ struct replay_producer : public core::frame_producer
 				seeked_ = false;
 			}
 		}
-		// IF speed is less than 0.5x and it's not time for a new frame
-		else if ((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f))
+		// IF trickplay is possible 0 < 1.0 || 1.0 > 3.0
+		else if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 3.0f)))
 		{
 			size_t frame_size = index_header_->width * index_header_->height * 4;
 			uint8_t* field1 = new uint8_t[frame_size];
