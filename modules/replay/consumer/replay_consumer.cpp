@@ -73,6 +73,8 @@ struct replay_consumer : public core::frame_consumer
 	mjpeg_process_mode						mode_;
 	boost::posix_time::ptime				start_timecode_;
 
+	int										audio_channels_;
+
 	tbb::atomic<int64_t>					current_encoding_delay_;
 
 
@@ -84,7 +86,7 @@ public:
 
 	// frame_consumer
 
-	replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling)
+	replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling, int audio_channels)
 		: filename_(filename)
 		, quality_(quality)
 		, subsampling_(subsampling)
@@ -92,6 +94,7 @@ public:
 	{
 		framenum_ = 0;
 		current_encoding_delay_ = 0;
+		audio_channels_ = audio_channels;
 
 		encode_executor_.set_capacity(REPLAY_FRAME_BUFFER);
 
@@ -145,7 +148,7 @@ public:
 
 		start_timecode_ = boost::posix_time::microsec_clock::universal_time();
 
-		write_index_header(output_index_file_, &format_desc, start_timecode_);
+		write_index_header(output_index_file_, &format_desc, start_timecode_, audio_channels_);
 	}
 
 #pragma warning(disable: 4701)
@@ -162,19 +165,19 @@ public:
 		switch (mode_)
 		{
 		case PROGRESSIVE:
-			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling, frame.audio_data().begin(), frame.audio_data().size());
 			write_index(idx_file, written);
 			break;
 		case UPPER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
 			break;
 		case LOWER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
 			break;
 		}
@@ -327,7 +330,7 @@ safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 		}
 	}
 
-	return make_safe<replay_consumer>(filename, quality, subsampling);
+	return make_safe<replay_consumer>(filename, quality, subsampling, 2);
 }
 
 }}

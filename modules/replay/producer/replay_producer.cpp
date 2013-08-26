@@ -75,6 +75,7 @@ struct replay_producer : public core::frame_producer
 	mjpeg_file_handle						in_file_;
 	mjpeg_file_handle						in_idx_file_;
 	boost::shared_ptr<mjpeg_file_header>	index_header_;
+	boost::shared_ptr<mjpeg_file_header_ex>	index_header_ex_;
 	const safe_ptr<core::frame_factory>			frame_factory_;
 	tbb::atomic<uint64_t>					framenum_;
 	tbb::atomic<uint64_t>					real_framenum_;
@@ -116,9 +117,23 @@ struct replay_producer : public core::frame_producer
 
 					if (size > 0) {
 						mjpeg_file_header* header;
+						mjpeg_file_header_ex* header_ex;
 						read_index_header(in_idx_file_, &header);
 						index_header_ = boost::shared_ptr<mjpeg_file_header>(header);
 						CASPAR_LOG(info) << print() << L" File starts at: " << boost::posix_time::to_iso_wstring(index_header_->begin_timecode);
+
+						if (index_header_->version >= 2)
+						{
+							read_index_header_ex(in_idx_file_, &header_ex);
+							index_header_ex_ = boost::shared_ptr<mjpeg_file_header_ex>(header);
+
+							CASPAR_LOG(info) << print() << L" File contains " << index_header_ex_->audio_channels << L" audio channels.";
+						}
+						else
+						{
+							header_ex = new mjpeg_file_header_ex();
+							header_ex->audio_channels = 0;
+						}
 
 						if (index_header_->field_mode == caspar::core::field_mode::progressive)
 						{
@@ -229,6 +244,7 @@ struct replay_producer : public core::frame_producer
 			size_t line = width * 4;
 			std::copy_n(frame_data, size - line, frame->image_data().begin() + line);
 		}
+
 		frame->commit();
 		frame_ = std::move(frame);
 		return frame_;
@@ -465,7 +481,9 @@ struct replay_producer : public core::frame_producer
 			mmx_uint8_t* field = NULL;
 			size_t field_width;
 			size_t field_height;
-			(void) read_frame(in_file_, &field_width, &field_height, &field);
+			size_t audio_size;
+			int32_t* audio = NULL;
+			(void) read_frame(in_file_, &field_width, &field_height, &field, &audio_size, &audio);
 
 			// Interpolate the field to a full frame if this is a field-based mode
 			if (interlaced_)
@@ -617,9 +635,13 @@ struct replay_producer : public core::frame_producer
 		mmx_uint8_t* field1 = NULL;
 		mmx_uint8_t* field2 = NULL;
 		mmx_uint8_t* full_frame = NULL;
+		int32_t* audio1 = NULL;
+		int32_t* audio2 = NULL;
 		size_t field1_width;
 		size_t field1_height;
-		size_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1);
+		size_t audio1_size;
+		size_t audio2_size;
+		size_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1, &audio1_size, &audio1);
 
 		if (!interlaced_)
 		{
@@ -649,7 +671,7 @@ struct replay_producer : public core::frame_producer
 
 		seek_frame(in_file_, field2_pos, SEEK_SET);
 
-		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2);
+		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 
 		full_frame = new mmx_uint8_t[field1_size + field2_size];
 
