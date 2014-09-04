@@ -49,6 +49,7 @@
 #include <modules/newtek/newtek.h>
 #include <modules/image/image.h>
 #include <modules/image/consumer/image_consumer.h>
+#include <modules/replay/replay.h>
 
 #include <modules/oal/consumer/oal_consumer.h>
 #include <modules/bluefish/consumer/bluefish_consumer.h>
@@ -152,6 +153,9 @@ struct server::implementation : boost::noncopyable
 
 		image::init();		  
 		CASPAR_LOG(info) << L"Initialized image module.";
+
+		replay::init();
+		CASPAR_LOG(info) << L"Initialized replay module.";
 
 		setup_channels(env::properties());
 		CASPAR_LOG(info) << L"Initialized channels.";

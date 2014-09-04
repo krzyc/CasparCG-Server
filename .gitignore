@@ -65,6 +65,11 @@
 /modules/ogl/tmp
 /modules/ogl/ogl.vcxproj.user
 
+# /modules/replay/
+/modules/replay/bin
+/modules/replay/tmp
+/modules/replay/ffmpeg.vcxproj.user
+
 # /protocol/
 /protocol/bin
 /protocol/tmp
