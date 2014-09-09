@@ -324,7 +324,7 @@ struct replay_producer : public core::frame_producer
 	{
 		if ((reverse_) && (framenum_ > 0))
 		{
-			framenum_ -= -(frame_multiplier_ > 1 ? frame_multiplier_ : 1);
+			framenum_ -= (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
 			seek_index(in_idx_file_, -1 - (frame_multiplier_ > 1 ? frame_multiplier_ : 1), SEEK_CUR);
 		}
 		else
@@ -332,7 +332,7 @@ struct replay_producer : public core::frame_producer
 			framenum_ += (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
 			if (frame_multiplier_ > 1)
 			{
-				seek_index(in_idx_file_, frame_multiplier_, SEEK_CUR);
+				seek_index(in_idx_file_, frame_multiplier_ - 1, SEEK_CUR);
 			}
 		}
 	}
@@ -392,7 +392,7 @@ struct replay_producer : public core::frame_producer
 			}
 		}
 
-		int frame_duration = ((1 / speed_) * 64.0f);
+		int frame_duration = ((1 / abs_speed_) * 64.0f);
 
 		while (filled < 64)
 		{
