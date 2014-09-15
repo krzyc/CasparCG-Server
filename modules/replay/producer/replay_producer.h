@@ -24,9 +24,12 @@
 #pragma once
 
 #include <core/producer/frame_producer.h>
+#include <core/parameters/parameters.h>
 
 #include <string>
 #include <vector>
+
+#define		REPLAY_PRODUCER_BUFFER_SIZE		3
 
 namespace caspar { namespace replay {
 

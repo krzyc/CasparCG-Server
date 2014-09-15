@@ -46,6 +46,7 @@
 #include <boost/timer.hpp>
 
 #include <tbb/concurrent_queue.h>
+#include <tbb/compat/thread>
 
 #include <algorithm>
 
@@ -62,19 +63,26 @@ using namespace boost::assign;
 
 namespace caspar { namespace replay {
 
+
 struct replay_producer : public core::frame_producer
 {	
 	core::monitor::subject					monitor_subject_;
+
 	const std::wstring						filename_;
 	safe_ptr<core::basic_frame>				frame_;
+	safe_ptr<core::basic_frame>				last_frame_;
+	std::queue<std::pair<safe_ptr<core::basic_frame>, uint64_t>>	frame_buffer_;
 	mjpeg_file_handle						in_file_;
 	mjpeg_file_handle						in_idx_file_;
 	boost::shared_ptr<mjpeg_file_header>	index_header_;
-	safe_ptr<core::frame_factory>			frame_factory_;
+	boost::shared_ptr<mjpeg_file_header_ex>	index_header_ex_;
+	const safe_ptr<core::frame_factory>			frame_factory_;
 	tbb::atomic<uint64_t>					framenum_;
+	tbb::atomic<uint64_t>					real_framenum_;
 	tbb::atomic<uint64_t>					first_framenum_;
 	tbb::atomic<uint64_t>					last_framenum_;
 	tbb::atomic<uint64_t>					result_framenum_;
+	tbb::atomic<int>						runstate_;
 	uint8_t*								leftovers_;
 	size_t									leftovers_size_;
 	int										leftovers_duration_;
@@ -86,11 +94,13 @@ struct replay_producer : public core::frame_producer
 	bool									reverse_;
 	bool									seeked_;
 	const safe_ptr<diagnostics::graph>		graph_;
+	std::thread*							decoder_;
 
 #pragma warning(disable:4244)
 	explicit replay_producer(const safe_ptr<core::frame_factory>& frame_factory, const std::wstring& filename, const int sign, const long long start_frame, const long long last_frame, const float start_speed) 
 		: filename_(filename)
 		, frame_(core::basic_frame::empty())
+		, last_frame_(core::basic_frame::empty())
 		, frame_factory_(frame_factory)
 	{
 		in_file_ = safe_fopen((filename_).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
@@ -107,9 +117,23 @@ struct replay_producer : public core::frame_producer
 
 					if (size > 0) {
 						mjpeg_file_header* header;
+						mjpeg_file_header_ex* header_ex;
 						read_index_header(in_idx_file_, &header);
 						index_header_ = boost::shared_ptr<mjpeg_file_header>(header);
 						CASPAR_LOG(info) << print() << L" File starts at: " << boost::posix_time::to_iso_wstring(index_header_->begin_timecode);
+
+						if (index_header_->version >= 2)
+						{
+							read_index_header_ex(in_idx_file_, &header_ex);
+							index_header_ex_ = boost::shared_ptr<mjpeg_file_header_ex>(header_ex);
+
+							CASPAR_LOG(info) << print() << L" File contains " << index_header_ex_->audio_channels << L" audio channels.";
+						}
+						else
+						{
+							header_ex = new mjpeg_file_header_ex();
+							header_ex->audio_channels = 0;
+						}
 
 						if (index_header_->field_mode == caspar::core::field_mode::progressive)
 						{
@@ -125,6 +149,8 @@ struct replay_producer : public core::frame_producer
 						framenum_ = 0;
 						last_framenum_ = 0;
 						first_framenum_ = 0;
+						real_framenum_ = 0;
+						runstate_ = 0;
 						
 						leftovers_ = NULL;
 						leftovers_duration_ = 0;
@@ -150,8 +176,36 @@ struct replay_producer : public core::frame_producer
 						}
 
 						graph_->set_color("frame-time", diagnostics::color(0.1f, 1.0f, 0.1f));
+						graph_->set_color("underflow", diagnostics::color(0.6f, 0.3f, 0.9f));
 						graph_->set_text(print());
 						diagnostics::register_graph(graph_);
+
+						decoder_ = new std::thread(
+							[&]
+							{
+								while (runstate_ == 0)
+								{
+									if (frame_buffer_.size() < REPLAY_PRODUCER_BUFFER_SIZE)
+									{
+										try
+										{
+											boost::timer frame_timer;
+											auto frame_pair = render_frame(0);
+											frame_buffer_.push(frame_pair);
+											update_diag(frame_timer.elapsed()*0.5*index_header_->fps);
+										} 
+										catch (...)
+										{
+											CASPAR_LOG(error) << print() << L" Unknown exception in the decoding thread!";
+										}
+									}
+									else
+									{
+										Sleep(1000 / (index_header_->fps * 2));
+									}
+								}
+							}
+						);
 					}
 					else
 					{
@@ -172,6 +226,7 @@ struct replay_producer : public core::frame_producer
 			throw file_not_found();
 		}
 	}
+
 #pragma warning(default:4244)
 	
 	caspar::safe_ptr<core::basic_frame> make_frame(uint8_t* frame_data, size_t size, size_t width, size_t height, bool drop_first_line)
@@ -189,6 +244,7 @@ struct replay_producer : public core::frame_producer
 			size_t line = width * 4;
 			std::copy_n(frame_data, size - line, frame->image_data().begin() + line);
 		}
+
 		frame->commit();
 		frame_ = std::move(frame);
 		return frame_;
@@ -275,29 +331,35 @@ struct replay_producer : public core::frame_producer
 		if (sign == 0)
 		{
 			framenum_ = frame_pos;
-			seek_index(in_idx_file_, frame_pos, SEEK_SET);
+			//seek_index(in_idx_file_, frame_pos, FILE_BEGIN);
 		}
 		else if (sign == -2)
 		{
 			framenum_ = length_index() - frame_pos - 4;
-			seek_index(in_idx_file_, framenum_, SEEK_SET);
+			//seek_index(in_idx_file_, framenum_, FILE_BEGIN);
 		}
 		else
 		{
 			if (((long long)framenum_ + (sign * frame_pos)) > 0)
 			{
-				framenum_ = framenum_ + (sign * (((sign < 0) && interlaced_) ? frame_pos + 2 : frame_pos));
+				//framenum_ = framenum_ + (sign * (((sign < 0) && interlaced_) ? frame_pos + 2 : frame_pos + 1));
+				framenum_ = framenum_ + (sign * ((sign < 0 ? frame_pos + 1 : frame_pos)));
 			}
 			else
 			{
 				framenum_ = 0;
 			}
-			if (((long long)framenum_ + (sign * frame_pos)) > length_index())
+			/*if (((long long)framenum_ + (sign * frame_pos)) > length_index())
 			{
 				framenum_ = length_index() - 4;
 			}
-			seek_index(in_idx_file_, framenum_, SEEK_SET);
+			seek_index(in_idx_file_, framenum_, FILE_BEGIN);*/
 		}
+		if (((long long)framenum_ /*+ (sign * frame_pos)*/) > length_index())
+		{
+			framenum_ = length_index() - 4;
+		}
+		seek_index(in_idx_file_, framenum_, FILE_BEGIN);
 		first_framenum_ = framenum_;
 		seeked_ = true;
 	}
@@ -318,6 +380,16 @@ struct replay_producer : public core::frame_producer
 	{
 		graph_->set_text(print());
 		graph_->set_value("frame-time", elapsed*0.5);
+
+		monitor_subject_	<< core::monitor::message("/profiler/time")		% elapsed % (1.0/index_header_->fps);			
+								
+		monitor_subject_	<< core::monitor::message("/file/time")			% ((interlaced_ ? real_framenum_ / 2 : real_framenum_) / index_header_->fps) 
+																			% ((last_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1) / index_header_->fps)
+							<< core::monitor::message("/file/frame")		% static_cast<int32_t>((interlaced_ ? real_framenum_ / 2 : real_framenum_))
+																			% static_cast<int32_t>((last_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1))
+							<< core::monitor::message("/file/fps")			% index_header_->fps
+							<< core::monitor::message("/file/path")			% filename_
+							<< core::monitor::message("/file/speed")		% speed_;
 	}
 
 	void move_to_next_frame()
@@ -325,14 +397,14 @@ struct replay_producer : public core::frame_producer
 		if ((reverse_) && (framenum_ > 0))
 		{
 			framenum_ -= (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
-			seek_index(in_idx_file_, -1 - (frame_multiplier_ > 1 ? frame_multiplier_ : 1), SEEK_CUR);
+			seek_index(in_idx_file_, -1 - (frame_multiplier_ > 1 ? frame_multiplier_ : 1), FILE_CURRENT);
 		}
 		else
 		{
 			framenum_ += (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
 			if (frame_multiplier_ > 1)
 			{
-				seek_index(in_idx_file_, frame_multiplier_ - 1, SEEK_CUR);
+				seek_index(in_idx_file_, frame_multiplier_ - 1, FILE_CURRENT);
 			}
 		}
 	}
@@ -409,12 +481,14 @@ struct replay_producer : public core::frame_producer
 
 			move_to_next_frame();
 
-			seek_frame(in_file_, field_pos, SEEK_SET);
+			seek_frame(in_file_, field_pos, FILE_BEGIN);
 
 			mmx_uint8_t* field = NULL;
 			size_t field_width;
 			size_t field_height;
-			(void) read_frame(in_file_, &field_width, &field_height, &field);
+			size_t audio_size;
+			int32_t* audio = NULL;
+			(void) read_frame(in_file_, &field_width, &field_height, &field, &audio_size, &audio);
 
 			// Interpolate the field to a full frame if this is a field-based mode
 			if (interlaced_)
@@ -465,17 +539,17 @@ struct replay_producer : public core::frame_producer
 	}
 #pragma warning(default:4244)
 
-	virtual safe_ptr<core::basic_frame> receive(int hint)
-	{
-		boost::timer frame_timer;
 
+
+	// TODO: Move the file operations and frame rendering to a separate function and put the rendered frames to a buffer
+	std::pair<safe_ptr<core::basic_frame>, uint64_t> render_frame(int hints)
+	{
 		if (last_framenum_ > 0)
 		{
 			if (last_framenum_ <= framenum_)
 			{
-				update_diag(frame_timer.elapsed());
-				frame_ = core::basic_frame::eof();
-				return frame_;
+				//frame_ = core::basic_frame::eof(); // Uncomment this to keep a steady frame after the length has run through
+				return std::make_pair(frame_, framenum_);
 			}
 		}
 
@@ -484,26 +558,15 @@ struct replay_producer : public core::frame_producer
 		{
 			if (!seeked_)
 			{
-				result_framenum_++;
-				update_diag(frame_timer.elapsed());
-				return frame_;
+				return std::make_pair(frame_, framenum_);
 			}
 			else
 			{
 				seeked_ = false;
 			}
 		}
-		// IF speed is less than 0.5x and it's not time for a new frame
-		/* else if (abs_speed_ <= 0.5f)
-		{
-			if (result_framenum_ % frame_divider_ > 0)
-			{
-				result_framenum_++;
-				update_diag(frame_timer.elapsed());
-				return frame_; // Return previous frame
-			}
-		} */
-		else if ((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f))
+		// IF trickplay is possible 0 - 1.0 || 1.0 - 2.0 || 2.0 - 3.0
+		else if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 2.0f)) || ((abs_speed_ > 2.0f) && (abs_speed_ < 3.0f)))
 		{
 			size_t frame_size = index_header_->width * index_header_->height * 4;
 			uint8_t* field1 = new uint8_t[frame_size];
@@ -518,9 +581,7 @@ struct replay_producer : public core::frame_producer
 
 			if (!slow_motion_playback(field1))
 			{
-				result_framenum_++;
-				update_diag(frame_timer.elapsed());
-				return frame_;
+				return std::make_pair(frame_, framenum_);
 			}
 			else
 			{
@@ -529,9 +590,7 @@ struct replay_producer : public core::frame_producer
 					make_frame(field1, frame_size, index_header_->width, index_header_->height, false);
 					delete field1;
 
-					result_framenum_++;
-					update_diag(frame_timer.elapsed());
-					return frame_;
+					return std::make_pair(frame_, framenum_);
 				}
 
 				if (!slow_motion_playback(field2))
@@ -540,9 +599,8 @@ struct replay_producer : public core::frame_producer
 					delete field1;
 					delete field2;
 					delete full_frame;
-					result_framenum_++;
-					update_diag(frame_timer.elapsed());
-					return frame_;
+
+					return std::make_pair(frame_, framenum_);
 				}
 				else
 				{
@@ -553,22 +611,16 @@ struct replay_producer : public core::frame_producer
 					delete field2;
 					delete full_frame;
 
-					result_framenum_++;
-					update_diag(frame_timer.elapsed());
-
-					return frame_;
+					return std::make_pair(frame_, framenum_);
 				}
 			}
 		}
-		else
-		{
-			if (leftovers_ != NULL)
-			{
-				delete leftovers_;
-				leftovers_ = NULL;
-			}
-		}
 
+		if (leftovers_ != NULL)
+		{
+			delete leftovers_;
+			leftovers_ = NULL;
+		}
 
 		// ELSE
 		if (abs_speed_ >= 1.0f)
@@ -578,74 +630,59 @@ struct replay_producer : public core::frame_producer
 
 		if (field1_pos == -1)
 		{	// There are no more frames
-			result_framenum_++;
-			update_diag(frame_timer.elapsed());
-			return frame_;
+			return std::make_pair(frame_, framenum_);
 		}
 
-		move_to_next_frame();
+		move_to_next_frame(); // CHECK THIS
 
 		seek_frame(in_file_, field1_pos, SEEK_SET);
 
 		mmx_uint8_t* field1 = NULL;
 		mmx_uint8_t* field2 = NULL;
 		mmx_uint8_t* full_frame = NULL;
+		int32_t* audio1 = NULL;
+		int32_t* audio2 = NULL;
 		size_t field1_width;
 		size_t field1_height;
-		size_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1);
+		size_t audio1_size;
+		size_t audio2_size;
+		size_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1, &audio1_size, &audio1);
 
 		if (!interlaced_)
 		{
-			mmx_uint8_t* full_frame = NULL;
+			make_frame(field1, field1_size, index_header_->width, index_header_->height, false);
 
-			if (interlaced_) 
-			{
-				full_frame = new mmx_uint8_t[field1_size * 2];
-				field_double(field1, full_frame, index_header_->width, index_header_->height, 4);
-			}
-			else
-			{
-				full_frame = field1;
-				field1 = NULL;
-			}
+			delete field1;
 
-			result_framenum_++;
+			return std::make_pair(frame_, framenum_);
+		}
 
-			make_frame(full_frame, (interlaced_ ? field1_size * 2 : field1_size), index_header_->width, index_header_->height, (interlaced_ ? (framenum_ % 2 != 1) : false));
+		if ((speed_ == 0.0f) && (interlaced_))
+		{
+			mmx_uint8_t* full_frame = new mmx_uint8_t[field1_size * 2];
 
-			if (field1 != NULL)
-				delete field1;
+			field_double(field1, full_frame, index_header_->width, index_header_->height, 4);
+			make_frame(full_frame, field1_size * 2, index_header_->width, index_header_->height, false);
 
+			delete field1;
 			delete full_frame;
 
-			update_diag(frame_timer.elapsed());
-
-			return frame_;
+			return std::make_pair(frame_, framenum_);
 		}
 
-		if (interlaced_) 
-		{
-			long long field2_pos = read_index(in_idx_file_);
+		long long field2_pos = read_index(in_idx_file_);
 
-			move_to_next_frame();
+		move_to_next_frame();
 
-			seek_frame(in_file_, field2_pos, SEEK_SET);
+		seek_frame(in_file_, field2_pos, SEEK_SET);
 
-			size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2);
+		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 
-			full_frame = new mmx_uint8_t[field1_size + field2_size];
+		full_frame = new mmx_uint8_t[field1_size + field2_size];
 
-			proper_interlace(field1, field2, full_frame);
+		proper_interlace(field1, field2, full_frame);
 		
-			make_frame(full_frame, field1_size + field2_size, index_header_->width, index_header_->height, false);
-		}
-		else
-		{
-			full_frame = field1;
-			field1 = NULL;
-
-			make_frame(full_frame, field1_size, index_header_->width, index_header_->height, false);
-		}
+		make_frame(full_frame, field1_size + field2_size, index_header_->width, index_header_->height, false);
 
 		if (field1 != NULL)
 			delete field1;
@@ -653,14 +690,35 @@ struct replay_producer : public core::frame_producer
 			delete field2;
 		delete full_frame;
 
-		update_diag(frame_timer.elapsed());
+		return std::make_pair(frame_, framenum_);
+	}
 
-		return frame_;
+	virtual safe_ptr<core::basic_frame> receive(int hint) override
+	{
+		safe_ptr<core::basic_frame> frame;
+
+		if (frame_buffer_.size() < 1)
+		{
+			graph_->set_tag("underflow");
+			frame = last_frame_;	// repeat last frame
+		}
+		else
+		{
+			frame = frame_buffer_.front().first;
+			real_framenum_ = frame_buffer_.front().second;
+			frame_buffer_.pop();
+		}
+
+		result_framenum_++;
+		
+		last_frame_ = frame;
+
+		return frame;
 	}
 		
 	virtual safe_ptr<core::basic_frame> last_frame() const override
 	{
-		return frame_;
+		return last_frame_;
 	}
 
 #pragma warning (disable: 4244)
@@ -676,7 +734,7 @@ struct replay_producer : public core::frame_producer
 
 	virtual std::wstring print() const override
 	{
-		return L"replay_producer[" + filename_ + L"|" + boost::lexical_cast<std::wstring>(interlaced_ ? framenum_ / 2 : framenum_)
+		return L"replay_producer[" + filename_ + L"|" + boost::lexical_cast<std::wstring>(interlaced_ ? real_framenum_ / 2 : real_framenum_)
 			 + L"|" + boost::lexical_cast<std::wstring>(speed_)
 			 + L"]";
 	}
@@ -686,26 +744,37 @@ struct replay_producer : public core::frame_producer
 		boost::property_tree::wptree info;
 		info.add(L"type", L"replay-producer");
 		info.add(L"filename", filename_);
-		info.add(L"play-head", framenum_);
+		info.add(L"play-head", (interlaced_ ? real_framenum_ / 2 : real_framenum_));
 		info.add(L"start-timecode", boost::posix_time::to_iso_wstring(index_header_->begin_timecode));
 		info.add(L"speed", speed_);
 		return info;
-	}
-
-	~replay_producer()
-	{
-		if (in_file_ != NULL)
-			safe_fclose(in_file_);
-
-		if (in_idx_file_ != NULL)
-			safe_fclose(in_idx_file_);
 	}
 
 	core::monitor::subject& monitor_output()
 	{
 		return monitor_subject_;
 	}
+
+	~replay_producer()
+	{
+		runstate_ = 1;
+		if (decoder_ != NULL)
+		{
+			if (decoder_->joinable())
+			{
+				decoder_->join();
+			}
+		}
+
+		if (in_file_ != NULL)
+			safe_fclose(in_file_);
+
+		if (in_idx_file_ != NULL)
+			safe_fclose(in_idx_file_);
+	}
 };
+
+
 
 safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params)
 {
@@ -724,8 +793,10 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 	long long start_frame = 0;
 	long long last_frame = 0;
 	float start_speed = 1.0f;
-	if (params.size() >= 3) {
-		for (uint16_t i=0; i<params.size(); i++) {
+	if (params.size() >= 3)
+	{
+		for (uint16_t i=0; i<params.size(); i++)
+		{
 			if (params[i] == L"SEEK")
 			{
 				static const boost::wregex seek_exp(L"(?<SIGN>[\\|])?(?<VALUE>[\\d]+)", boost::regex::icase);

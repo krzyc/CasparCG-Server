@@ -25,9 +25,9 @@
 #include "producer/replay_producer.h"
 #include "consumer/replay_consumer.h"
 
-#include <core/parameters/parameters.h>
 #include <core/producer/frame_producer.h>
 #include <core/consumer/frame_consumer.h>
+#include <core/parameters/parameters.h>
 
 #include <common/utility/string.h>
 
@@ -38,8 +38,8 @@ namespace caspar { namespace replay {
 
 void init()
 {
-	core::register_producer_factory(create_producer);
 	core::register_consumer_factory([](const core::parameters& params){return replay::create_consumer(params);});
+	core::register_producer_factory(create_producer);
 }
 
 std::wstring get_version()

@@ -25,6 +25,7 @@
 
 #include <common/memory/safe_ptr.h>
 
+#include <core/parameters/parameters.h>
 #include <core/video_format.h>
 
 #include <boost/property_tree/ptree.hpp>
@@ -36,11 +37,10 @@ namespace caspar {
 
 namespace core {
 	struct frame_consumer;
-	class parameters;
 }
 
 namespace replay {
 	
-safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params/*const std::vector<std::wstring>& params*/);
+safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params);
 
 }} 
