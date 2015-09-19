@@ -44,6 +44,8 @@
 #include <boost/property_tree/ptree.hpp>
 
 namespace caspar { namespace core {
+
+const long SEND_TIMEOUT_MILLIS = 10000L;
 	
 struct output::implementation
 {		
@@ -75,7 +77,7 @@ public:
 		, monitor_subject_("/output")
 		, format_desc_(format_desc)
 		, audio_channel_layout_(audio_channel_layout)
-		, executor_(L"output")
+		, executor_(L"output " + boost::lexical_cast<std::wstring>(channel_index))
 	{
 		graph_->set_color("consume-time", diagnostics::color(1.0f, 0.4f, 0.0f, 0.8));
 	}
@@ -154,25 +156,30 @@ public:
 		});
 	}
 	
-	std::map<int, size_t> buffer_depths_snapshot() const
+	std::map<int, int> buffer_depths_snapshot() const
 	{
-		std::map<int, size_t> result;
+		std::map<int, int> result;
 
 		BOOST_FOREACH(auto& consumer, consumers_)
 			result.insert(std::make_pair(
 					consumer.first,
 					consumer.second->buffer_depth()));
 
-		return std::move(result);
+		return result;
 	}
 
-	std::pair<size_t, size_t> minmax_buffer_depth(
-			const std::map<int, size_t>& buffer_depths) const
+	std::pair<int, int> minmax_buffer_depth(
+			const std::map<int, int>& buffer_depths) const
 	{		
 		if(consumers_.empty())
 			return std::make_pair(0, 0);
 		
-		auto depths = buffer_depths | boost::adaptors::map_values; 
+		auto depths = buffer_depths
+				| boost::adaptors::map_values
+				| boost::adaptors::filtered([](int v) { return v >= 0; });
+
+		if (depths.empty())
+			return std::make_pair(0, 0);
 		
 		return std::make_pair(
 				*boost::range::min_element(depths),
@@ -218,7 +225,8 @@ public:
 				for (auto it = consumers_.begin(); it != consumers_.end();)
 				{
 					auto consumer	= it->second;
-					auto frame		= frames_.at(buffer_depths[it->first]-minmax.first);
+					auto depth		= buffer_depths[it->first];
+					auto frame		= depth < 0 ? frames_.back() : frames_.at(depth - minmax.first);
 
 					send_to_consumers_delays_[it->first] = frame->get_age_millis();
 						
@@ -249,32 +257,45 @@ public:
 				for (auto result_it = send_results.begin(); result_it != send_results.end(); ++result_it)
 				{
 					auto consumer		= consumers_.at(result_it->first);
-					auto frame			= frames_.at(buffer_depths[result_it->first]-minmax.first);
+					auto depth			= buffer_depths[result_it->first];
+					auto frame			= depth < 0 ? frames_.back() : frames_.at(depth - minmax.first);
 					auto& result_future	= result_it->second;
 						
 					try
 					{
-						if(!result_future.get())
+						if (!result_future.timed_wait(boost::posix_time::seconds(SEND_TIMEOUT_MILLIS)))
+						{
+							BOOST_THROW_EXCEPTION(timed_out() << msg_info(narrow(print()) + " " + narrow(consumer->print()) + " Timed out during send"));
+						}
+
+						if (!result_future.get())
 						{
 							CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Removed.";
 							send_to_consumers_delays_.erase(result_it->first);
 							consumers_.erase(result_it->first);
 						}
 					}
-					catch(...)
+					catch (...)
 					{
 						CASPAR_LOG_CURRENT_EXCEPTION();
 						try
 						{
 							consumer->initialize(format_desc_, audio_channel_layout_, channel_index_);
-							if(!consumer->send(frame).get())
+							auto retry_future = consumer->send(frame);
+
+							if (!retry_future.timed_wait(boost::posix_time::seconds(SEND_TIMEOUT_MILLIS)))
+							{
+								BOOST_THROW_EXCEPTION(timed_out() << msg_info(narrow(print()) + " " + narrow(consumer->print()) + " Timed out during retry"));
+							}
+
+							if (!retry_future.get())
 							{
 								CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Removed.";
 								send_to_consumers_delays_.erase(result_it->first);
 								consumers_.erase(result_it->first);
 							}
 						}
-						catch(...)
+						catch (...)
 						{
 							CASPAR_LOG_CURRENT_EXCEPTION();
 							CASPAR_LOG(error) << "Failed to recover consumer: " << consumer->print() << L". Removing it.";

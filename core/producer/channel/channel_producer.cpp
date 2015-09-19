@@ -51,10 +51,15 @@ class channel_consumer : public frame_consumer
 	int															consumer_index_;
 	tbb::atomic<bool>											is_running_;
 	tbb::atomic<int64_t>										current_age_;
+	boost::promise<void>										first_frame_promise_;
+	boost::unique_future<void>									first_frame_available_;
+	bool														first_frame_reported_;
 
 public:
 	channel_consumer()
 		: consumer_index_(next_consumer_index())
+		, first_frame_available_(first_frame_promise_.get_future())
+		, first_frame_reported_(false)
 	{
 		is_running_ = true;
 		current_age_ = 0;
@@ -83,7 +88,14 @@ public:
 
 	virtual boost::unique_future<bool> send(const safe_ptr<read_frame>& frame) override
 	{
-		frame_buffer_.try_push(frame);
+		bool pushed = frame_buffer_.try_push(frame);
+
+		if (pushed && !first_frame_reported_)
+		{
+			first_frame_promise_.set_value();
+			first_frame_reported_ = true;
+		}
+
 		return caspar::wrap_as_future(is_running_.load());
 	}
 
@@ -119,9 +131,9 @@ public:
 		return false;
 	}
 
-	virtual size_t buffer_depth() const override
+	virtual int buffer_depth() const override
 	{
-		return 1;
+		return -1;
 	}
 
 	virtual int index() const override
@@ -140,6 +152,13 @@ public:
 	const core::video_format_desc& get_video_format_desc()
 	{
 		return format_desc_;
+	}
+
+	void block_until_first_frame_available()
+	{
+		if (!first_frame_available_.timed_wait(boost::posix_time::seconds(2)))
+			CASPAR_LOG(warning)
+					<< print() << L" Timed out while waiting for first frame";
 	}
 
 	std::shared_ptr<read_frame> receive()
@@ -174,6 +193,7 @@ public:
 		, frame_number_(0)
 	{
 		channel->output()->add(consumer_);
+		consumer_->block_until_first_frame_available();
 		CASPAR_LOG(info) << print() << L" Initialized";
 	}
 
@@ -189,7 +209,7 @@ public:
 	{
 		auto format_desc = consumer_->get_video_format_desc();
 
-		if(frame_buffer_.size() > 1)
+		if(frame_buffer_.size() > 0)
 		{
 			auto frame = frame_buffer_.front();
 			frame_buffer_.pop();
@@ -211,7 +231,15 @@ public:
 
 		desc.pix_fmt = core::pixel_format::bgra;
 		desc.planes.push_back(core::pixel_format_desc::plane(format_desc.width, format_desc.height, 4));
-		auto frame = frame_factory_->create_frame(this, desc);
+		auto frame = frame_factory_->create_frame(this, desc, read_frame->multichannel_view().channel_layout());
+
+		bool copy_audio = !double_speed && !half_speed;
+
+		if (copy_audio)
+		{
+			frame->audio_data().reserve(read_frame->audio_data().size());
+			boost::copy(read_frame->audio_data(), std::back_inserter(frame->audio_data()));
+		}
 
 		fast_memcpy(frame->image_data().begin(), read_frame->image_data().begin(), read_frame->image_data().size());
 		frame->commit();

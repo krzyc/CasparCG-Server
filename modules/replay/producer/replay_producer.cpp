@@ -108,7 +108,7 @@ struct replay_producer : public core::frame_producer
 		{
 			_off_t size = 0;
 
-			in_idx_file_ = safe_fopen((boost::filesystem::wpath(filename_).replace_extension(L".idx").string()).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
+			in_idx_file_ = safe_fopen((boost::filesystem::wpath(filename_).replace_extension(L".idx").wstring()).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
 			if (in_idx_file_ != NULL)
 			{
 				while (size == 0)

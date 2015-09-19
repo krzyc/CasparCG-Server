@@ -108,7 +108,7 @@ struct server::implementation : boost::noncopyable
 {
 	std::shared_ptr<boost::asio::io_service>	io_service_;
 	safe_ptr<core::monitor::subject>			monitor_subject_;
-	boost::promise<bool>&						shutdown_server_now_;
+	std::function<void (bool)>					shutdown_server_now_;
 	safe_ptr<ogl_device>						ogl_;
 	std::vector<safe_ptr<IO::AsyncEventServer>> async_servers_;	
 	std::shared_ptr<IO::AsyncEventServer>		primary_amcp_server_;
@@ -120,7 +120,7 @@ struct server::implementation : boost::noncopyable
 	tbb::atomic<bool>							running_;
 	std::shared_ptr<thumbnail_generator>		thumbnail_generator_;
 
-	implementation(boost::promise<bool>& shutdown_server_now)
+	implementation(const std::function<void (bool)>& shutdown_server_now)
 		: io_service_(create_running_io_service())
 		, shutdown_server_now_(shutdown_server_now)
 		, ogl_(ogl_device::create())
@@ -297,7 +297,10 @@ struct server::implementation : boost::noncopyable
 				if(name == L"tcp")
 				{					
 					unsigned int port = xml_controller.second.get(L"port", 5250);
-					auto asyncbootstrapper = make_safe<IO::AsyncEventServer>(create_protocol(protocol), port);
+					auto asyncbootstrapper = make_safe<IO::AsyncEventServer>(create_protocol(
+							protocol,
+							L"TCP Port " + boost::lexical_cast<std::wstring>(port)),
+							port);
 					asyncbootstrapper->Start();
 					async_servers_.push_back(asyncbootstrapper);
 
@@ -374,15 +377,22 @@ struct server::implementation : boost::noncopyable
 				ogl_,
 				pt.get(L"configuration.thumbnails.generate-delay-millis", 2000),
 				&image::write_cropped_png,
-				media_info_repo_));
+				media_info_repo_,
+				pt.get(L"configuration.thumbnails.mipmap", false)));
 
 		CASPAR_LOG(info) << L"Initialized thumbnail generator.";
 	}
 
-	safe_ptr<IO::IProtocolStrategy> create_protocol(const std::wstring& name) const
+	safe_ptr<IO::IProtocolStrategy> create_protocol(const std::wstring& name, const std::wstring& port_description) const
 	{
 		if(boost::iequals(name, L"AMCP"))
-			return make_safe<amcp::AMCPProtocolStrategy>(channels_, thumbnail_generator_, media_info_repo_, shutdown_server_now_);
+			return make_safe<amcp::AMCPProtocolStrategy>(
+					port_description,
+					channels_,
+					thumbnail_generator_,
+					media_info_repo_,
+					ogl_,
+					shutdown_server_now_);
 		else if(boost::iequals(name, L"CII"))
 			return make_safe<cii::CIIProtocolStrategy>(channels_);
 		else if(boost::iequals(name, L"CLOCK"))
@@ -399,10 +409,13 @@ struct server::implementation : boost::noncopyable
 	{
 		initial_media_info_thread_ = boost::thread([this]
 		{
-			for (boost::filesystem::wrecursive_directory_iterator iter(env::media_folder()), end; iter != end; ++iter)
+			for (boost::filesystem::recursive_directory_iterator iter(env::media_folder()), end; iter != end; ++iter)
 			{
 				if (running_)
-					media_info_repo_->get(iter->path().file_string());
+				{
+					CASPAR_LOG(trace) << L"Retrieving information about file " << iter->path();
+					media_info_repo_->get(iter->path().wstring());
+				}
 				else
 				{
 					CASPAR_LOG(info) << L"Initial media information retrieval aborted.";
@@ -415,7 +428,7 @@ struct server::implementation : boost::noncopyable
 	}
 };
 
-server::server(boost::promise<bool>& shutdown_server_now) : impl_(new implementation(shutdown_server_now)){}
+server::server(const std::function<void (bool)>& shutdown_server_now) : impl_(new implementation(shutdown_server_now)){}
 
 const std::vector<safe_ptr<video_channel>> server::get_channels() const
 {
@@ -430,6 +443,11 @@ std::shared_ptr<thumbnail_generator> server::get_thumbnail_generator() const
 safe_ptr<media_info_repository> server::get_media_info_repo() const
 {
 	return impl_->media_info_repo_;
+}
+
+safe_ptr<ogl_device> server::get_ogl_device() const
+{
+	return impl_->ogl_;
 }
 
 core::monitor::subject& server::monitor_output()

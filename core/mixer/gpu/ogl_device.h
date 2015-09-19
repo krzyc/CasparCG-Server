@@ -36,6 +36,7 @@
 
 #include <boost/noncopyable.hpp>
 #include <boost/thread/future.hpp>
+#include <boost/property_tree/ptree_fwd.hpp>
 
 #include <array>
 #include <unordered_map>
@@ -73,7 +74,7 @@ class ogl_device : public std::enable_shared_from_this<ogl_device>, boost::nonco
 
 	std::unique_ptr<sf::Context> context_;
 	
-	std::array<tbb::concurrent_unordered_map<size_t, safe_ptr<buffer_pool<device_buffer>>>, 4> device_pools_;
+	std::array<tbb::concurrent_unordered_map<size_t, safe_ptr<buffer_pool<device_buffer>>>, 8> device_pools_;
 	std::array<tbb::concurrent_unordered_map<size_t, safe_ptr<buffer_pool<host_buffer>>>, 2> host_pools_;
 	
 	GLuint fbo_;
@@ -117,16 +118,17 @@ public:
 		return executor_.invoke(std::forward<Func>(func), priority);
 	}
 		
-	safe_ptr<device_buffer> create_device_buffer(size_t width, size_t height, size_t stride);
+	safe_ptr<device_buffer> create_device_buffer(size_t width, size_t height, size_t stride, bool mipmapped);
 	safe_ptr<host_buffer> create_host_buffer(size_t size, host_buffer::usage_t usage);
 	
 	void yield();
+	boost::property_tree::wptree info() const;
 	boost::unique_future<void> gc();
 
 	std::wstring version();
 
 private:
-	safe_ptr<device_buffer> allocate_device_buffer(size_t width, size_t height, size_t stride);
+	safe_ptr<device_buffer> allocate_device_buffer(size_t width, size_t height, size_t stride, bool mipmapped);
 	safe_ptr<host_buffer> allocate_host_buffer(size_t size, host_buffer::usage_t usage);
 };
 

@@ -1,7 +1,7 @@
 C H A N G E S
 
-CasparCG Server 2.0.7 (as compared to CasparCG Server 2.0.7 Beta 2)
-===================================================================
+CasparCG Server 2.0.7 Stable (as compared to CasparCG Server 2.0.7 Beta 2)
+==========================================================================
 
 General
 -------
@@ -9,18 +9,81 @@ General
   o Added support for using a different configuration file at startup than the
     default casparcg.config by simply adding the name of the file to use as the
     first command line argument to casparcg.exe.
-  o Fixed various bugs.
+  o Upgraded FFmpeg to latest stable.
+  o Created build script.
+  o Fixed bug where both layer_producer and channel_producer display:s and
+    empty/late first frame when the producer is called before the consumer in
+    the other end has received the first frame.
+  o Added rudimentary support for audio for layer_producer and channel_producer.
+  o Upgraded Decklink SDK to 10.1.4, bringing new 2K and 4K DCI video modes. New
+    template hosts also availble for those modes.
+  o General bug fixes (mostly memory and resource leaks, some serious).
+  o Updated Boost to version 1.57
+  o Frontend no longer maintained and therefore not included in the release.
+
+Mixer
+-----
+
+  o Added support for rotation.
+  o Added support for changing the anchor point around which fill_translation,
+    fill_scale and rotation will be done from.
+  o Added support for perspective correct corner pinning.
+  o Added support for mipmapped textures with anisotropic filtering for
+    increased downscaling quality. Whether to enable by default can be
+    configured in casparcg.config.
+  o Added support for cropping a layer. Not the same as clipping.
 
 AMCP
 ----
 
   o Added RESUME command to complement PAUSE. (Peter Keuter)
+  o To support the new mixer features the following commands has been added:
+
+    - MIXER ANCHOR -- will return or modify the anchor point for a layer
+      (default is 0 0 for backwards compatibility). Example:
+      MIXER 1-10 ANCHOR 0.5 0.5
+      ...for changing the anchor to the middle of the layer
+      (a MIXER 1-10 FILL 0.5 0.5 1 1 will be necessary to place the layer at the
+      same place on screen as it was before).
+
+    - MIXER ROTATION -- will return or modify the angle of which a layer is
+      rotated by (clockwise degrees) around the point specified by ANCHOR.
+
+    - MIXER PERSPECTIVE -- will return or modify the corners of the perspective
+      transformation of a layer. One X Y pair for each corner (order upper left,
+      upper right, lower right and lower left). Example:
+      MIXER 1-10 PERSPECTIVE 0.4 0.4 0.6 0.4 1 1 0 1
+
+    - MIXER MIPMAP -- will return or modify whether to enable mipmapping of
+      textures produced on a layer. Only frames produced after a change will be
+      affected. So for example image_producer will not be affected while the
+      image is displayed.
+
+    - MIXER CROP -- will return or modify how textures on a layer will be
+      cropped. One X Y pair each for the upper left corner and for the lower
+      right corner.
+
+  o Added INFO QUEUES command for debugging AMCP command queues. Useful for
+    debugging command queue overflows, where a command is deadlocked. Hopefully
+    always accessible via console, even though the TCP command queue may be
+    full.
+  o Added GL command:
+    - GL INFO prints information about device buffers and host buffers.
+    - GL GC garbage collects pooled but unused GL resources.
+  o Added INFO THREADS command listing the known threads and their descriptive
+    names. Can be matched against the thread id column of log entries.
 
 Consumers
 ---------
 
   o Removed blocking_decklink_consumer. It was more like an experiment at best
     and its usefulness was questionable.
+  o Added a 10 second time-out for consumer sends, to detect/recover from
+    blocked consumers.
+  o Some consumers which are usually added and removed during playout (for
+    example ffmpeg_consumer, streaming_consumer and channel_consumer) no longer
+    affect the presentation time on other consumers. Previously a lag on the SDI
+    output could be seen when adding such consumers.
 
 HTML producer
 -------------
@@ -50,7 +113,7 @@ Producers
 ---------
 
   o FFmpeg: Reports correct nb_frames() when using SEEK (Thomas Kaltz III)
-  o Flash: Fixed bug wherer CG PLAY, CG INVOKE
+  o Flash: Fixed bug where CG PLAY, CG INVOKE did not work.
 
 Consumers
 ---------

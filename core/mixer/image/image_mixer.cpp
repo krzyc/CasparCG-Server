@@ -182,6 +182,7 @@ private:
 		draw_params.pix_desc				= std::move(item.pix_desc);
 		draw_params.textures				= std::move(item.textures);
 		draw_params.transform				= std::move(item.transform);
+		draw_params.aspect_ratio			= static_cast<double>(format_desc.square_width) / static_cast<double>(format_desc.square_height);
 
 		if(item.transform.is_key)
 		{
@@ -237,7 +238,7 @@ private:
 			
 	safe_ptr<device_buffer> create_mixer_buffer(size_t stride, const video_format_desc& format_desc)
 	{
-		auto buffer = ogl_->create_device_buffer(format_desc.width, format_desc.height, stride);
+		auto buffer = ogl_->create_device_buffer(format_desc.width, format_desc.height, stride, false);
 		ogl_->clear(*buffer);
 		return buffer;
 	}

@@ -47,7 +47,7 @@ namespace caspar { namespace image {
 void write_cropped_png(
 		const safe_ptr<core::read_frame>& frame,
 		const core::video_format_desc& format_desc,
-		const boost::filesystem::wpath& output_file,
+		const boost::filesystem::path& output_file,
 		int width,
 		int height)
 {
@@ -58,7 +58,7 @@ void write_cropped_png(
 
 	std::copy(thumbnail_view.begin(), thumbnail_view.end(), destination_view.begin());
 	FreeImage_FlipVertical(bitmap.get());
-	FreeImage_SaveU(FIF_PNG, bitmap.get(), output_file.string().c_str(), 0);
+	FreeImage_SaveU(FIF_PNG, bitmap.get(), output_file.wstring().c_str(), 0);
 }
 
 struct image_consumer : public core::frame_consumer
@@ -129,9 +129,9 @@ public:
 		return info;
 	}
 
-	virtual size_t buffer_depth() const override
+	virtual int buffer_depth() const override
 	{
-		return 0;
+		return -1;
 	}
 
 	virtual int index() const override
