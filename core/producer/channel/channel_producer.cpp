@@ -113,6 +113,12 @@ public:
 		return current_age_;
 	}
 
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
+	}
+
 	virtual std::wstring print() const override
 	{
 		return L"[channel-consumer|" + boost::lexical_cast<std::wstring>(channel_index_) + L"]";

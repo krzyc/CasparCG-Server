@@ -30,6 +30,7 @@
 #include <common/exception/win32_exception.h>
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/mixer/audio/audio_util.h>
 #include <core/video_format.h>
@@ -117,6 +118,12 @@ public:
 	virtual int64_t presentation_frame_age_millis() const override
 	{
 		return presentation_age_;
+	}
+
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
 	}
 
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override

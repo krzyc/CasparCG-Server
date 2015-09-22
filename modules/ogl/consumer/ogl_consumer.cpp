@@ -39,6 +39,7 @@
 #include <ffmpeg/producer/filter/filter.h>
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 #include <core/consumer/frame_consumer.h>
@@ -554,6 +555,12 @@ public:
 	virtual int64_t presentation_frame_age_millis() const override
 	{
 		return consumer_ ? consumer_->current_presentation_age_ : 0;
+	}
+
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
 	}
 
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
