@@ -29,6 +29,7 @@
 #include "../producer/audio/audio_resampler.h"
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/mixer/read_frame.h>
 #include <core/mixer/audio/audio_util.h>
 #include <core/consumer/frame_consumer.h>
@@ -686,6 +687,12 @@ public:
 		return consumer_ ? consumer_->current_encoding_delay_ : 0;
 	}
 	
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
+	}
+
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
 	{
 		bool ready_for_frame = consumer_->ready_for_frame();

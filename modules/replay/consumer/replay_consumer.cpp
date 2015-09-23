@@ -37,7 +37,6 @@
 #include <core/consumer/frame_consumer.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
-#include <core/monitor/monitor.h>
 
 #include <boost/thread.hpp>
 #include <boost/thread/locks.hpp>
@@ -265,6 +264,11 @@ public:
 	virtual int index() const override
 	{
 		return 150;
+	}
+
+	core::monitor::subject& monitor_output()
+	{
+		return monitor_subject_;
 	}
 
 	~replay_consumer()

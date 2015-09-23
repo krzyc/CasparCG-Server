@@ -40,6 +40,7 @@
 #include <common/utility/software_version.h>
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/mixer/audio/audio_util.h>
 
@@ -600,6 +601,12 @@ public:
 	virtual int64_t presentation_frame_age_millis() const
 	{
 		return context_ ? context_->current_presentation_delay_ : 0;
+	}
+
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
 	}
 };
 

@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "../monitor/monitor.h"
+
 #include <common/memory/safe_ptr.h>
 
 #include <boost/noncopyable.hpp>
@@ -52,6 +54,8 @@ struct frame_consumer : boost::noncopyable
 	virtual int index() const = 0;
 
 	static const safe_ptr<frame_consumer>& empty();
+
+	virtual monitor::subject& monitor_output() = 0;
 };
 
 safe_ptr<frame_consumer> create_consumer_cadence_guard(const safe_ptr<frame_consumer>& consumer);

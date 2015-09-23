@@ -127,6 +127,11 @@ public:
 		return consumer_->info();
 	}
 
+	virtual monitor::subject& monitor_output()
+	{
+		return consumer_->monitor_output();
+	}
+
 	virtual bool has_synchronization_clock() const override
 	{
 		return consumer_->has_synchronization_clock();
@@ -164,6 +169,11 @@ const safe_ptr<frame_consumer>& frame_consumer::empty()
 			boost::property_tree::wptree info;
 			info.add(L"type", L"empty-consumer");
 			return info;
+		}
+		virtual monitor::subject& monitor_output()
+		{
+			static monitor::subject monitor_subject("");
+			return monitor_subject;
 		}
 	};
 	static safe_ptr<frame_consumer> consumer = make_safe<empty_frame_consumer>();

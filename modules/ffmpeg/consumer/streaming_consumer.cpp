@@ -13,6 +13,7 @@
 #include <common/scope_exit.h>
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/mixer/read_frame.h>
 #include <core/producer/frame/pixel_format.h>
@@ -448,6 +449,12 @@ public:
 	int64_t presentation_frame_age_millis() const override
 	{
 		return 0;
+	}
+
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
 	}
 
 private:

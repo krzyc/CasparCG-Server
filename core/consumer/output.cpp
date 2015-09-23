@@ -51,7 +51,7 @@ struct output::implementation
 {		
 	const int										channel_index_;
 	const safe_ptr<diagnostics::graph>				graph_;
-	monitor::subject								monitor_subject_;
+	safe_ptr<monitor::subject>						monitor_subject_;
 	boost::timer									consume_timer_;
 
 	video_format_desc								format_desc_;
@@ -74,7 +74,7 @@ public:
 			int channel_index) 
 		: channel_index_(channel_index)
 		, graph_(graph)
-		, monitor_subject_("/output")
+		, monitor_subject_(make_safe<monitor::subject>("/output"))
 		, format_desc_(format_desc)
 		, audio_channel_layout_(audio_channel_layout)
 		, executor_(L"output " + boost::lexical_cast<std::wstring>(channel_index))
@@ -92,6 +92,7 @@ public:
 		executor_.invoke([&]
 		{
 			consumers_.insert(std::make_pair(index, consumer));
+			consumer->monitor_output().attach_parent(monitor_subject_);
 			CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Added.";
 		}, high_priority);
 	}
@@ -306,7 +307,7 @@ public:
 				}
 						
 				graph_->set_value("consume-time", consume_timer_.elapsed()*format_desc_.fps*0.5);
-				monitor_subject_ << monitor::message("/consume_time") % (consume_timer_.elapsed());
+				*monitor_subject_ << monitor::message("/consume_time") % (consume_timer_.elapsed());
 			}
 			catch(...)
 			{
@@ -368,7 +369,7 @@ public:
 
 	monitor::subject& monitor_output()
 	{ 
-		return monitor_subject_;
+		return *monitor_subject_;
 	}
 };
 

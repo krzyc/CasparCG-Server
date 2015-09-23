@@ -25,6 +25,7 @@
 
 #include <core/consumer/frame_consumer.h>
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 
@@ -161,6 +162,12 @@ public:
 	virtual int64_t presentation_frame_age_millis() const override
 	{
 		return 0;
+	}
+
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
 	}
 
 	virtual bool has_synchronization_clock() const override
