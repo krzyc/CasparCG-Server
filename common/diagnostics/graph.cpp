@@ -140,10 +140,23 @@ private:
 				return;
 			}
 		}		
-		glClear(GL_COLOR_BUFFER_BIT);
-		window_->Draw(*this);
-		window_->Display();
-		boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+
+		try
+		{
+			glClear(GL_COLOR_BUFFER_BIT);
+			window_->Draw(*this);
+			window_->Display();
+			boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+		}
+		catch (...)
+		{
+			CASPAR_LOG_CURRENT_EXCEPTION();
+			CASPAR_LOG(error)
+					<< L"Closing diag window due to error during rendering";
+			window_.reset();
+			return;
+		}
+
 		executor_.begin_invoke([this]{tick();});
 	}
 
@@ -269,6 +282,7 @@ struct graph::impl : public drawable
 	bool auto_reset_;
 
 	impl()
+		: auto_reset_(false)
 	{
 	}
 		

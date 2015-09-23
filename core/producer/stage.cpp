@@ -103,17 +103,21 @@ struct stage::implementation : public std::enable_shared_from_this<implementatio
 	// map of layer -> map of tokens (src ref) -> layer_consumer
 	std::map<int, std::map<void*, std::shared_ptr<write_frame_consumer>>>		 layer_consumers_;
 	
-	monitor::subject															 monitor_subject_;
+	safe_ptr<monitor::subject>													 monitor_subject_;
 
 	executor																	 executor_;
 
 public:
-	implementation(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<stage::target_t>& target, const video_format_desc& format_desc)  
+	implementation(
+			const safe_ptr<diagnostics::graph>& graph,
+			const safe_ptr<stage::target_t>& target,
+			const video_format_desc& format_desc,
+			int channel_index)
 		: graph_(graph)
 		, format_desc_(format_desc)
 		, target_(target)
-		, monitor_subject_("/stage")
-		, executor_(L"stage")
+		, monitor_subject_(make_safe<monitor::subject>("/stage"))
+		, executor_(L"stage " + boost::lexical_cast<std::wstring>(channel_index))
 	{
 		graph_->set_color("tick-time", diagnostics::color(0.0f, 0.6f, 0.9f, 0.8));	
 		graph_->set_color("produce-time", diagnostics::color(0.0f, 1.0f, 0.0f));
@@ -176,7 +180,7 @@ public:
 				if (layer_consumers_it != layer_consumers_.end())
 				{
 					auto consumer_it = (*layer_consumers_it).second | boost::adaptors::map_values;
-					tbb::parallel_for_each(consumer_it.begin(), consumer_it.end(), [&](decltype(consumer_it[0]) layer_consumer) 
+					tbb::parallel_for_each(consumer_it.begin(), consumer_it.end(), [&](decltype(*consumer_it.begin()) layer_consumer) 
 					{
 						layer_consumer->send(frame);
 					});
@@ -194,6 +198,11 @@ public:
 
 				frames[layer.first] = frame1;
 			});
+
+			// Tick the transforms that does not have a corresponding layer.
+			BOOST_FOREACH(auto& elem, transforms_)
+				if (layers_.find(elem.first) == layers_.end())
+					elem.second.fetch_and_tick(format_desc_.field_mode != core::field_mode::progressive ? 2 : 1);
 			
 			graph_->set_value("produce-time", produce_timer_.elapsed()*format_desc_.fps*0.5);
 
@@ -254,7 +263,7 @@ public:
 	{
 		executor_.begin_invoke([=]
 		{
-			transforms_[index] = tweened_transform<core::frame_transform>();
+			transforms_.unsafe_erase(index);
 		}, high_priority);
 	}
 
@@ -280,7 +289,7 @@ public:
 		if(it == std::end(layers_))
 		{
 			it = layers_.insert(std::make_pair(index, std::make_shared<layer>(index))).first;
-			it->second->monitor_output().link_target(&monitor_subject_);
+			it->second->monitor_output().attach_parent(monitor_subject_);
 		}
 		return *it->second;
 	}
@@ -298,6 +307,14 @@ public:
 		executor_.begin_invoke([=]
 		{
 			get_layer(index).pause();
+		}, high_priority);
+	}
+
+	void resume(int index)
+	{		
+		executor_.begin_invoke([=]
+		{
+			get_layer(index).resume();
 		}, high_priority);
 	}
 
@@ -354,18 +371,18 @@ public:
 			auto other_layers	= other_impl->layers_ | boost::adaptors::map_values;
 
 			BOOST_FOREACH(auto& layer, layers)
-				layer->monitor_output().unlink_target(&monitor_subject_);
+				layer->monitor_output().detach_parent();
 			
 			BOOST_FOREACH(auto& layer, other_layers)
-				layer->monitor_output().unlink_target(&monitor_subject_);
+				layer->monitor_output().attach_parent(monitor_subject_);
 			
 			std::swap(layers_, other_impl->layers_);
 						
 			BOOST_FOREACH(auto& layer, layers)
-				layer->monitor_output().link_target(&monitor_subject_);
+				layer->monitor_output().detach_parent();
 			
 			BOOST_FOREACH(auto& layer, other_layers)
-				layer->monitor_output().link_target(&monitor_subject_);
+				layer->monitor_output().detach_parent();
 		};		
 
 		executor_.begin_invoke([=]
@@ -395,13 +412,13 @@ public:
 				auto& my_layer		= get_layer(index);
 				auto& other_layer	= other_impl->get_layer(other_index);
 
-				my_layer.monitor_output().unlink_target(&monitor_subject_);
-				other_layer.monitor_output().unlink_target(&other_impl->monitor_subject_);
+				my_layer.monitor_output().detach_parent();
+				other_layer.monitor_output().attach_parent(other_impl->monitor_subject_);
 
 				std::swap(my_layer, other_layer);
 
-				my_layer.monitor_output().link_target(&monitor_subject_);
-				other_layer.monitor_output().link_target(&other_impl->monitor_subject_);
+				my_layer.monitor_output().detach_parent();
+				other_layer.monitor_output().attach_parent(other_impl->monitor_subject_);
 			};		
 
 			executor_.begin_invoke([=]
@@ -476,8 +493,12 @@ public:
 	}
 };
 
-stage::stage(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<target_t>& target, const video_format_desc& format_desc) 
-	: impl_(new implementation(graph, target, format_desc)){}
+stage::stage(
+		const safe_ptr<diagnostics::graph>& graph,
+		const safe_ptr<target_t>& target,
+		const video_format_desc& format_desc,
+		int channel_index)
+	: impl_(new implementation(graph, target, format_desc, channel_index)){}
 void stage::apply_transforms(const std::vector<stage::transform_tuple_t>& transforms){impl_->apply_transforms(transforms);}
 void stage::apply_transform(int index, const std::function<core::frame_transform(core::frame_transform)>& transform, unsigned int mix_duration, const std::wstring& tween){impl_->apply_transform(index, transform, mix_duration, tween);}
 void stage::clear_transforms(int index){impl_->clear_transforms(index);}
@@ -486,6 +507,7 @@ frame_transform stage::get_current_transform(int index) { return impl_->get_curr
 void stage::spawn_token(){impl_->spawn_token();}
 void stage::load(int index, const safe_ptr<frame_producer>& producer, bool preview, int auto_play_delta){impl_->load(index, producer, preview, auto_play_delta);}
 void stage::pause(int index){impl_->pause(index);}
+void stage::resume(int index){impl_->resume(index);}
 void stage::play(int index){impl_->play(index);}
 void stage::stop(int index){impl_->stop(index);}
 void stage::clear(int index){impl_->clear(index);}
@@ -503,5 +525,5 @@ boost::unique_future<boost::property_tree::wptree> stage::info() const{return im
 boost::unique_future<boost::property_tree::wptree> stage::info(int index) const{return impl_->info(index);}
 boost::unique_future<boost::property_tree::wptree> stage::delay_info() const{return impl_->delay_info();}
 boost::unique_future<boost::property_tree::wptree> stage::delay_info(int index) const{return impl_->delay_info(index);}
-monitor::source& stage::monitor_output(){return impl_->monitor_subject_;}
+monitor::subject& stage::monitor_output(){return *impl_->monitor_subject_;}
 }}

@@ -35,8 +35,10 @@
 #include <core/video_channel.h>
 #include <core/producer/stage.h>
 #include <core/consumer/output.h>
-#include <core/consumer/synchronizing/synchronizing_consumer.h>
 #include <core/thumbnail_generator.h>
+#include <core/producer/media_info/media_info.h>
+#include <core/producer/media_info/media_info_repository.h>
+#include <core/producer/media_info/in_memory_media_info_repository.h>
 
 #include <modules/bluefish/bluefish.h>
 #include <modules/decklink/decklink.h>
@@ -44,17 +46,18 @@
 #include <modules/flash/flash.h>
 #include <modules/oal/oal.h>
 #include <modules/ogl/ogl.h>
-#include <modules/silverlight/silverlight.h>
+#include <modules/newtek/newtek.h>
 #include <modules/image/image.h>
 #include <modules/image/consumer/image_consumer.h>
 #include <modules/replay/replay.h>
 
 #include <modules/oal/consumer/oal_consumer.h>
 #include <modules/bluefish/consumer/bluefish_consumer.h>
+#include <modules/newtek/consumer/newtek_ivga_consumer.h>
 #include <modules/decklink/consumer/decklink_consumer.h>
-#include <modules/decklink/consumer/blocking_decklink_consumer.h>
 #include <modules/ogl/consumer/ogl_consumer.h>
 #include <modules/ffmpeg/consumer/ffmpeg_consumer.h>
+#include <modules/ffmpeg/consumer/streaming_consumer.h>
 
 #include <protocol/amcp/AMCPProtocolStrategy.h>
 #include <protocol/cii/CIIProtocolStrategy.h>
@@ -62,40 +65,72 @@
 #include <protocol/util/AsyncEventServer.h>
 #include <protocol/util/stateful_protocol_strategy_wrapper.h>
 #include <protocol/osc/client.h>
-#include <protocol/asio/io_service_manager.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <boost/asio.hpp>
+
+#include <tbb/atomic.h>
 
 namespace caspar {
 
 using namespace core;
 using namespace protocol;
 
+std::shared_ptr<boost::asio::io_service> create_running_io_service()
+{
+	auto service = std::make_shared<boost::asio::io_service>();
+	// To keep the io_service::run() running although no pending async
+	// operations are posted.
+	auto work = std::make_shared<boost::asio::io_service::work>(*service);
+	auto thread = std::make_shared<boost::thread>([service]
+	{
+		win32_exception::ensure_handler_installed_for_thread("asio-thread");
+
+		service->run();
+	});
+
+	return std::shared_ptr<boost::asio::io_service>(
+			service.get(),
+			[service, work, thread] (void*) mutable
+			{
+				work.reset();
+				service->stop();
+				thread->join();
+			});
+}
+
 struct server::implementation : boost::noncopyable
 {
-	protocol::asio::io_service_manager			io_service_manager_;
-	core::monitor::subject						monitor_subject_;
-	boost::promise<bool>&						shutdown_server_now_;
+	std::shared_ptr<boost::asio::io_service>	io_service_;
+	safe_ptr<core::monitor::subject>			monitor_subject_;
+	std::function<void (bool)>					shutdown_server_now_;
 	safe_ptr<ogl_device>						ogl_;
 	std::vector<safe_ptr<IO::AsyncEventServer>> async_servers_;	
 	std::shared_ptr<IO::AsyncEventServer>		primary_amcp_server_;
 	osc::client									osc_client_;
 	std::vector<std::shared_ptr<void>>			predefined_osc_subscriptions_;
 	std::vector<safe_ptr<video_channel>>		channels_;
+	safe_ptr<media_info_repository>				media_info_repo_;
+	boost::thread								initial_media_info_thread_;
+	tbb::atomic<bool>							running_;
 	std::shared_ptr<thumbnail_generator>		thumbnail_generator_;
 
-	implementation(boost::promise<bool>& shutdown_server_now)
-		: shutdown_server_now_(shutdown_server_now)
+	implementation(const std::function<void (bool)>& shutdown_server_now)
+		: io_service_(create_running_io_service())
+		, shutdown_server_now_(shutdown_server_now)
 		, ogl_(ogl_device::create())
-		, osc_client_(io_service_manager_.service(), monitor_subject_)
+		, osc_client_(io_service_)
+		, media_info_repo_(create_in_memory_media_info_repository())
 	{
+		running_ = true;
 		setup_audio(env::properties());
-
-		ffmpeg::init();
+		
+		ffmpeg::init(media_info_repo_);
 		CASPAR_LOG(info) << L"Initialized ffmpeg module.";
 							  
 		bluefish::init();	  
@@ -103,18 +138,21 @@ struct server::implementation : boost::noncopyable
 							  
 		decklink::init();	  
 		CASPAR_LOG(info) << L"Initialized decklink module.";
-							  							  
-		oal::init();		  
+
+		oal::init();
 		CASPAR_LOG(info) << L"Initialized oal module.";
 							  
+		newtek::init();
+		CASPAR_LOG(info) << L"Initialized newtek module.";
+
 		ogl::init();		  
 		CASPAR_LOG(info) << L"Initialized ogl module.";
 
-		image::init();		  
-		CASPAR_LOG(info) << L"Initialized image module.";
-
 		flash::init();		  
 		CASPAR_LOG(info) << L"Initialized flash module.";
+
+		image::init();		  
+		CASPAR_LOG(info) << L"Initialized image module.";
 
 		replay::init();
 		CASPAR_LOG(info) << L"Initialized replay module.";
@@ -129,16 +167,23 @@ struct server::implementation : boost::noncopyable
 
 		setup_osc(env::properties());
 		CASPAR_LOG(info) << L"Initialized osc.";
+
+		start_initial_media_info_scan();
+		CASPAR_LOG(info) << L"Started initial media information retrieval.";
 	}
 
 	~implementation()
-	{		
-		ffmpeg::uninit();
-
+	{
+		diagnostics::show_graphs(false);
+		running_ = false;
+		initial_media_info_thread_.join();
 		thumbnail_generator_.reset();
 		primary_amcp_server_.reset();
 		async_servers_.clear();
+		destroy_producers_synchronously();
 		channels_.clear();
+
+		ffmpeg::uninit();
 	}
 
 	void setup_audio(const boost::property_tree::wptree& pt)
@@ -173,7 +218,7 @@ struct server::implementation : boost::noncopyable
 			
 			channels_.push_back(make_safe<video_channel>(channels_.size()+1, format_desc, ogl_, audio_channel_layout));
 			
-			channels_.back()->monitor_output().link_target(&monitor_subject_);
+			channels_.back()->monitor_output().attach_parent(monitor_subject_);
 			channels_.back()->mixer()->set_straight_alpha_output(
 					xml_channel.second.get(L"straight-alpha-output", false));
 
@@ -187,7 +232,10 @@ struct server::implementation : boost::noncopyable
 
 		// Dummy diagnostics channel
 		if(env::properties().get(L"configuration.channel-grid", false))
+		{
 			channels_.push_back(make_safe<video_channel>(channels_.size()+1, core::video_format_desc::get(core::video_format::x576p2500), ogl_, default_channel_layout_repository().get_by_name(L"STEREO")));
+			channels_.back()->monitor_output().attach_parent(monitor_subject_);
+		}
 	}
 
 	template<typename Base>
@@ -218,16 +266,14 @@ struct server::implementation : boost::noncopyable
 					on_consumer(bluefish::create_consumer(xml_consumer.second));					
 				else if (name == L"decklink")					
 					on_consumer(decklink::create_consumer(xml_consumer.second));				
-				else if (name == L"blocking-decklink")
-					on_consumer(decklink::create_blocking_consumer(xml_consumer.second));				
-				else if (name == L"file" || name == L"stream")					
+				else if (name == L"newtek-ivga")					
+					on_consumer(newtek::create_ivga_consumer(xml_consumer.second));			
+				else if (name == L"file")					
 					on_consumer(ffmpeg::create_consumer(xml_consumer.second));						
+				else if (name == L"stream")					
+					on_consumer(ffmpeg::create_streaming_consumer(xml_consumer.second));						
 				else if (name == L"system-audio")
 					on_consumer(oal::create_consumer());
-				else if (name == L"synchronizing")
-					on_consumer(make_safe<core::synchronizing_consumer>(
-							create_consumers<core::frame_consumer>(
-									xml_consumer.second)));
 				else if (name != L"<xmlcomment>")
 					CASPAR_LOG(warning) << "Invalid consumer: " << widen(name);	
 			}
@@ -251,7 +297,10 @@ struct server::implementation : boost::noncopyable
 				if(name == L"tcp")
 				{					
 					unsigned int port = xml_controller.second.get(L"port", 5250);
-					auto asyncbootstrapper = make_safe<IO::AsyncEventServer>(create_protocol(protocol), port);
+					auto asyncbootstrapper = make_safe<IO::AsyncEventServer>(create_protocol(
+							protocol,
+							L"TCP Port " + boost::lexical_cast<std::wstring>(port)),
+							port);
 					asyncbootstrapper->Start();
 					async_servers_.push_back(asyncbootstrapper);
 
@@ -272,6 +321,8 @@ struct server::implementation : boost::noncopyable
 	{		
 		using boost::property_tree::wptree;
 		using namespace boost::asio::ip;
+
+		monitor_subject_->attach_parent(osc_client_.sink());
 		
 		auto default_port =
 				pt.get<unsigned short>(L"configuration.osc.default-port", 6250);
@@ -315,8 +366,7 @@ struct server::implementation : boost::noncopyable
 		auto scan_interval_millis = pt.get(L"configuration.thumbnails.scan-interval-millis", 5000);
 
 		polling_filesystem_monitor_factory monitor_factory(
-				io_service_manager_.service(),
-				scan_interval_millis);
+				io_service_, scan_interval_millis);
 		thumbnail_generator_.reset(new thumbnail_generator(
 				monitor_factory, 
 				env::media_folder(),
@@ -326,15 +376,23 @@ struct server::implementation : boost::noncopyable
 				core::video_format_desc::get(pt.get(L"configuration.thumbnails.video-mode", L"720p2500")),
 				ogl_,
 				pt.get(L"configuration.thumbnails.generate-delay-millis", 2000),
-				&image::write_cropped_png));
+				&image::write_cropped_png,
+				media_info_repo_,
+				pt.get(L"configuration.thumbnails.mipmap", false)));
 
 		CASPAR_LOG(info) << L"Initialized thumbnail generator.";
 	}
 
-	safe_ptr<IO::IProtocolStrategy> create_protocol(const std::wstring& name) const
+	safe_ptr<IO::IProtocolStrategy> create_protocol(const std::wstring& name, const std::wstring& port_description) const
 	{
 		if(boost::iequals(name, L"AMCP"))
-			return make_safe<amcp::AMCPProtocolStrategy>(channels_, thumbnail_generator_, shutdown_server_now_);
+			return make_safe<amcp::AMCPProtocolStrategy>(
+					port_description,
+					channels_,
+					thumbnail_generator_,
+					media_info_repo_,
+					ogl_,
+					shutdown_server_now_);
 		else if(boost::iequals(name, L"CII"))
 			return make_safe<cii::CIIProtocolStrategy>(channels_);
 		else if(boost::iequals(name, L"CLOCK"))
@@ -346,9 +404,31 @@ struct server::implementation : boost::noncopyable
 		
 		BOOST_THROW_EXCEPTION(caspar_exception() << arg_name_info("name") << arg_value_info(narrow(name)) << msg_info("Invalid protocol"));
 	}
+
+	void start_initial_media_info_scan()
+	{
+		initial_media_info_thread_ = boost::thread([this]
+		{
+			for (boost::filesystem::recursive_directory_iterator iter(env::media_folder()), end; iter != end; ++iter)
+			{
+				if (running_)
+				{
+					CASPAR_LOG(trace) << L"Retrieving information about file " << iter->path();
+					media_info_repo_->get(iter->path().wstring());
+				}
+				else
+				{
+					CASPAR_LOG(info) << L"Initial media information retrieval aborted.";
+					return;
+				}
+			}
+
+			CASPAR_LOG(info) << L"Initial media information retrieval finished.";
+		});
+	}
 };
 
-server::server(boost::promise<bool>& shutdown_server_now) : impl_(new implementation(shutdown_server_now)){}
+server::server(const std::function<void (bool)>& shutdown_server_now) : impl_(new implementation(shutdown_server_now)){}
 
 const std::vector<safe_ptr<video_channel>> server::get_channels() const
 {
@@ -360,9 +440,19 @@ std::shared_ptr<thumbnail_generator> server::get_thumbnail_generator() const
 	return impl_->thumbnail_generator_;
 }
 
-core::monitor::source& server::monitor_output()
+safe_ptr<media_info_repository> server::get_media_info_repo() const
 {
-	return impl_->monitor_subject_;
+	return impl_->media_info_repo_;
+}
+
+safe_ptr<ogl_device> server::get_ogl_device() const
+{
+	return impl_->ogl_;
+}
+
+core::monitor::subject& server::monitor_output()
+{
+	return *impl_->monitor_subject_;
 }
 
 }

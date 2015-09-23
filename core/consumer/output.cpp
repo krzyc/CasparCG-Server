@@ -44,14 +44,18 @@
 #include <boost/property_tree/ptree.hpp>
 
 namespace caspar { namespace core {
+
+const long SEND_TIMEOUT_MILLIS = 10000L;
 	
 struct output::implementation
 {		
 	const int										channel_index_;
 	const safe_ptr<diagnostics::graph>				graph_;
+	safe_ptr<monitor::subject>						monitor_subject_;
 	boost::timer									consume_timer_;
 
 	video_format_desc								format_desc_;
+	channel_layout									audio_channel_layout_;
 
 	std::map<int, safe_ptr<frame_consumer>>			consumers_;
 	
@@ -63,11 +67,17 @@ struct output::implementation
 	executor										executor_;
 		
 public:
-	implementation(const safe_ptr<diagnostics::graph>& graph, const video_format_desc& format_desc, int channel_index) 
+	implementation(
+			const safe_ptr<diagnostics::graph>& graph,
+			const video_format_desc& format_desc,
+			const channel_layout& audio_channel_layout,
+			int channel_index) 
 		: channel_index_(channel_index)
 		, graph_(graph)
+		, monitor_subject_(make_safe<monitor::subject>("/output"))
 		, format_desc_(format_desc)
-		, executor_(L"output")
+		, audio_channel_layout_(audio_channel_layout)
+		, executor_(L"output " + boost::lexical_cast<std::wstring>(channel_index))
 	{
 		graph_->set_color("consume-time", diagnostics::color(1.0f, 0.4f, 0.0f, 0.8));
 	}
@@ -77,11 +87,12 @@ public:
 		remove(index);
 
 		consumer = create_consumer_cadence_guard(consumer);
-		consumer->initialize(format_desc_, channel_index_);
+		consumer->initialize(format_desc_, audio_channel_layout_, channel_index_);
 
 		executor_.invoke([&]
 		{
 			consumers_.insert(std::make_pair(index, consumer));
+			consumer->monitor_output().attach_parent(monitor_subject_);
 			CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Added.";
 		}, high_priority);
 	}
@@ -129,7 +140,7 @@ public:
 			{						
 				try
 				{
-					it->second->initialize(format_desc, channel_index_);
+					it->second->initialize(format_desc, audio_channel_layout_, channel_index_);
 					++it;
 				}
 				catch(...)
@@ -146,25 +157,30 @@ public:
 		});
 	}
 	
-	std::map<int, size_t> buffer_depths_snapshot() const
+	std::map<int, int> buffer_depths_snapshot() const
 	{
-		std::map<int, size_t> result;
+		std::map<int, int> result;
 
 		BOOST_FOREACH(auto& consumer, consumers_)
 			result.insert(std::make_pair(
 					consumer.first,
 					consumer.second->buffer_depth()));
 
-		return std::move(result);
+		return result;
 	}
 
-	std::pair<size_t, size_t> minmax_buffer_depth(
-			const std::map<int, size_t>& buffer_depths) const
+	std::pair<int, int> minmax_buffer_depth(
+			const std::map<int, int>& buffer_depths) const
 	{		
 		if(consumers_.empty())
 			return std::make_pair(0, 0);
 		
-		auto depths = buffer_depths | boost::adaptors::map_values; 
+		auto depths = buffer_depths
+				| boost::adaptors::map_values
+				| boost::adaptors::filtered([](int v) { return v >= 0; });
+
+		if (depths.empty())
+			return std::make_pair(0, 0);
 		
 		return std::make_pair(
 				*boost::range::min_element(depths),
@@ -210,7 +226,8 @@ public:
 				for (auto it = consumers_.begin(); it != consumers_.end();)
 				{
 					auto consumer	= it->second;
-					auto frame		= frames_.at(buffer_depths[it->first]-minmax.first);
+					auto depth		= buffer_depths[it->first];
+					auto frame		= depth < 0 ? frames_.back() : frames_.at(depth - minmax.first);
 
 					send_to_consumers_delays_[it->first] = frame->get_age_millis();
 						
@@ -241,32 +258,45 @@ public:
 				for (auto result_it = send_results.begin(); result_it != send_results.end(); ++result_it)
 				{
 					auto consumer		= consumers_.at(result_it->first);
-					auto frame			= frames_.at(buffer_depths[result_it->first]-minmax.first);
+					auto depth			= buffer_depths[result_it->first];
+					auto frame			= depth < 0 ? frames_.back() : frames_.at(depth - minmax.first);
 					auto& result_future	= result_it->second;
 						
 					try
 					{
-						if(!result_future.get())
+						if (!result_future.timed_wait(boost::posix_time::seconds(SEND_TIMEOUT_MILLIS)))
+						{
+							BOOST_THROW_EXCEPTION(timed_out() << msg_info(narrow(print()) + " " + narrow(consumer->print()) + " Timed out during send"));
+						}
+
+						if (!result_future.get())
 						{
 							CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Removed.";
 							send_to_consumers_delays_.erase(result_it->first);
 							consumers_.erase(result_it->first);
 						}
 					}
-					catch(...)
+					catch (...)
 					{
 						CASPAR_LOG_CURRENT_EXCEPTION();
 						try
 						{
-							consumer->initialize(format_desc_, channel_index_);
-							if(!consumer->send(frame).get())
+							consumer->initialize(format_desc_, audio_channel_layout_, channel_index_);
+							auto retry_future = consumer->send(frame);
+
+							if (!retry_future.timed_wait(boost::posix_time::seconds(SEND_TIMEOUT_MILLIS)))
+							{
+								BOOST_THROW_EXCEPTION(timed_out() << msg_info(narrow(print()) + " " + narrow(consumer->print()) + " Timed out during retry"));
+							}
+
+							if (!retry_future.get())
 							{
 								CASPAR_LOG(info) << print() << L" " << consumer->print() << L" Removed.";
 								send_to_consumers_delays_.erase(result_it->first);
 								consumers_.erase(result_it->first);
 							}
 						}
-						catch(...)
+						catch (...)
 						{
 							CASPAR_LOG_CURRENT_EXCEPTION();
 							CASPAR_LOG(error) << "Failed to recover consumer: " << consumer->print() << L". Removing it.";
@@ -277,6 +307,7 @@ public:
 				}
 						
 				graph_->set_value("consume-time", consume_timer_.elapsed()*format_desc_.fps*0.5);
+				*monitor_subject_ << monitor::message("/consume_time") % (consume_timer_.elapsed());
 			}
 			catch(...)
 			{
@@ -335,9 +366,14 @@ public:
 			return consumers_.empty();
 		});
 	}
+
+	monitor::subject& monitor_output()
+	{ 
+		return *monitor_subject_;
+	}
 };
 
-output::output(const safe_ptr<diagnostics::graph>& graph, const video_format_desc& format_desc, int channel_index) : impl_(new implementation(graph, format_desc, channel_index)){}
+output::output(const safe_ptr<diagnostics::graph>& graph, const video_format_desc& format_desc, const channel_layout& audio_channel_layout, int channel_index) : impl_(new implementation(graph, format_desc, audio_channel_layout, channel_index)){}
 void output::add(int index, const safe_ptr<frame_consumer>& consumer){impl_->add(index, consumer);}
 void output::add(const safe_ptr<frame_consumer>& consumer){impl_->add(consumer);}
 void output::remove(int index){impl_->remove(index);}
@@ -347,4 +383,5 @@ void output::set_video_format_desc(const video_format_desc& format_desc){impl_->
 boost::unique_future<boost::property_tree::wptree> output::info() const{return impl_->info();}
 boost::unique_future<boost::property_tree::wptree> output::delay_info() const{return impl_->delay_info();}
 bool output::empty() const{return impl_->empty();}
+monitor::subject& output::monitor_output() { return impl_->monitor_output(); }
 }}

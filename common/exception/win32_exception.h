@@ -23,8 +23,12 @@
 
 #include "exceptions.h"
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 
 #include <windows.h>
 
@@ -35,6 +39,8 @@ class win32_exception : public std::exception
 public:
 	typedef const void* address;
 	static void install_handler();
+	static void ensure_handler_installed_for_thread(
+			const char* thread_description);
 
 	address location() const { return location_; }
 	unsigned int error_code() const { return errorCode_; }

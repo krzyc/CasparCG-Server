@@ -26,6 +26,7 @@
 #include <core/consumer/frame_consumer.h>
 #include <core/parameters/parameters.h>
 #include <core/video_channel.h>
+#include <core/mixer/gpu/ogl_device.h>
 #include <core/thumbnail_generator.h>
 
 #include <boost/algorithm/string.hpp>
@@ -35,8 +36,7 @@ namespace caspar { namespace protocol { namespace amcp {
 	enum AMCPCommandScheduling
 	{
 		Default = 0,
-		AddToQueue,
-		ImmediatelyAndClear
+		AddToQueue
 	};
 
 	class AMCPCommand
@@ -60,6 +60,8 @@ namespace caspar { namespace protocol { namespace amcp {
 			_parameters = p;
 		}
 
+		const core::parameters& GetParameters() const { return _parameters; }
+
 		void SetClientInfo(IO::ClientInfoPtr& s){pClientInfo_ = s;}
 		IO::ClientInfoPtr GetClientInfo(){return pClientInfo_;}
 
@@ -72,14 +74,20 @@ namespace caspar { namespace protocol { namespace amcp {
 		void SetThumbGenerator(const std::shared_ptr<core::thumbnail_generator>& thumb_gen) {thumb_gen_ = thumb_gen;}
 		std::shared_ptr<core::thumbnail_generator> GetThumbGenerator() { return thumb_gen_; }
 
-		void SetShutdownServerNow(boost::promise<bool>& shutdown_server_now) {shutdown_server_now_ = &shutdown_server_now;}
-		boost::promise<bool>& GetShutdownServerNow() { return *shutdown_server_now_; }
+		void SetMediaInfoRepo(const safe_ptr<core::media_info_repository>& media_info_repo) {media_info_repo_ = media_info_repo;}
+		std::shared_ptr<core::media_info_repository> GetMediaInfoRepo() { return media_info_repo_; }
+
+		void SetShutdownServerNow(const std::function<void (bool)>& shutdown_server_now) {shutdown_server_now_ = shutdown_server_now;}
+		const std::function<void (bool)>& GetShutdownServerNow() { return shutdown_server_now_; }
 
 		void SetChannelIndex(unsigned int channelIndex){channelIndex_ = channelIndex;}
 		unsigned int GetChannelIndex(){return channelIndex_;}
 
 		void SetLayerIntex(int layerIndex){layerIndex_ = layerIndex;}
 		int GetLayerIndex(int defaultValue = 0) const{return layerIndex_ != -1 ? layerIndex_ : defaultValue;}
+
+		void SetOglDevice(const safe_ptr<core::ogl_device>& device){ogl_ = device;}
+		std::shared_ptr<core::ogl_device> GetOglDevice() const { return ogl_; }
 
 		virtual void Clear();
 
@@ -100,10 +108,12 @@ namespace caspar { namespace protocol { namespace amcp {
 		unsigned int channelIndex_;
 		int layerIndex_;
 		IO::ClientInfoPtr pClientInfo_;
+		std::shared_ptr<core::ogl_device> ogl_;
 		std::shared_ptr<core::video_channel> pChannel_;
 		std::vector<safe_ptr<core::video_channel>> channels_;
 		std::shared_ptr<core::thumbnail_generator> thumb_gen_;
-		boost::promise<bool>* shutdown_server_now_;
+		std::shared_ptr<core::media_info_repository> media_info_repo_;
+		std::function<void (bool)> shutdown_server_now_;
 		AMCPCommandScheduling scheduling_;
 		std::wstring replyString_;
 	};

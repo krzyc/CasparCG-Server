@@ -37,7 +37,6 @@
 #include <core/consumer/frame_consumer.h>
 #include <core/video_format.h>
 #include <core/mixer/read_frame.h>
-#include <core/monitor/monitor.h>
 
 #include <boost/thread.hpp>
 #include <boost/thread/locks.hpp>
@@ -57,7 +56,7 @@ namespace caspar { namespace replay {
 	
 struct replay_consumer : public core::frame_consumer
 {
-	// core::monitor::subject					monitor_subject_;
+	core::monitor::subject					monitor_subject_;
 
 	core::video_format_desc					format_desc_;
 	std::wstring							filename_;
@@ -73,6 +72,8 @@ struct replay_consumer : public core::frame_consumer
 	mjpeg_process_mode						mode_;
 	boost::posix_time::ptime				start_timecode_;
 
+	int										audio_channels_;
+
 	tbb::atomic<int64_t>					current_encoding_delay_;
 
 
@@ -84,7 +85,7 @@ public:
 
 	// frame_consumer
 
-	replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling)
+	replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling, int audio_channels)
 		: filename_(filename)
 		, quality_(quality)
 		, subsampling_(subsampling)
@@ -92,6 +93,7 @@ public:
 	{
 		framenum_ = 0;
 		current_encoding_delay_ = 0;
+		audio_channels_ = audio_channels;
 
 		encode_executor_.set_capacity(REPLAY_FRAME_BUFFER);
 
@@ -105,7 +107,7 @@ public:
 		file_open_ = false;
 	}
 
-	virtual void initialize(const core::video_format_desc& format_desc, int) override
+	virtual void initialize(const core::video_format_desc& format_desc, const core::channel_layout& audio_channel_layout, int)
 	{
 		format_desc_ = format_desc;
 
@@ -145,7 +147,7 @@ public:
 
 		start_timecode_ = boost::posix_time::microsec_clock::universal_time();
 
-		write_index_header(output_index_file_, &format_desc, start_timecode_);
+		write_index_header(output_index_file_, &format_desc, start_timecode_, audio_channels_);
 	}
 
 #pragma warning(disable: 4701)
@@ -162,19 +164,19 @@ public:
 		switch (mode_)
 		{
 		case PROGRESSIVE:
-			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling, frame.audio_data().begin(), frame.audio_data().size());
 			write_index(idx_file, written);
 			break;
 		case UPPER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
 			break;
 		case LOWER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
 			write_index(idx_file, written);
 			break;
 		}
@@ -210,12 +212,12 @@ public:
 
 					current_encoding_delay_ = frame->get_age_millis();
 
-					/* monitor_subject_	<< core::monitor::message("/profiler/time")		% frame_timer.elapsed() % (1.0/format_desc_.fps);			
+					monitor_subject_	<< core::monitor::message("/profiler/time")		% frame_timer.elapsed() % (1.0/format_desc_.fps);			
 								
 					monitor_subject_	<< core::monitor::message("/file/time")			% (framenum_ / format_desc_.fps) 
 										<< core::monitor::message("/file/frame")		% static_cast<int32_t>(framenum_)
 										<< core::monitor::message("/file/fps")			% format_desc_.fps
-										<< core::monitor::message("/file/path")			% filename_; */
+										<< core::monitor::message("/file/path")			% filename_;
 				});
 			}
 			else
@@ -239,7 +241,7 @@ public:
 		return false;
 	}
 
-	virtual size_t buffer_depth() const override
+	virtual int buffer_depth() const override
 	{
 		return 1;
 	}
@@ -262,6 +264,11 @@ public:
 	virtual int index() const override
 	{
 		return 150;
+	}
+
+	core::monitor::subject& monitor_output()
+	{
+		return monitor_subject_;
 	}
 
 	~replay_consumer()
@@ -327,7 +334,7 @@ safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 		}
 	}
 
-	return make_safe<replay_consumer>(filename, quality, subsampling);
+	return make_safe<replay_consumer>(filename, quality, subsampling, 2);
 }
 
 }}

@@ -36,16 +36,20 @@ namespace caspar {
 namespace core {
 	class video_channel;
 	class thumbnail_generator;
+	struct media_info_repository;
+	class ogl_device;
 }
 
 class server : boost::noncopyable
 {
 public:
-	server(boost::promise<bool>& shutdown_server_now);
+	server(const std::function<void (bool)>& shutdown_server_now);
 	const std::vector<safe_ptr<core::video_channel>> get_channels() const;
 	std::shared_ptr<core::thumbnail_generator> get_thumbnail_generator() const;
+	safe_ptr<core::media_info_repository> get_media_info_repo() const;
+	safe_ptr<core::ogl_device> get_ogl_device() const;
 
-	core::monitor::source& monitor_output();
+	core::monitor::subject& monitor_output();
 
 private:
 	struct implementation;

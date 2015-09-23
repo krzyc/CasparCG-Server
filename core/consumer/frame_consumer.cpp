@@ -80,12 +80,15 @@ public:
 	{
 	}
 	
-	virtual void initialize(const video_format_desc& format_desc, int channel_index) override
+	virtual void initialize(
+			const video_format_desc& format_desc,
+			const channel_layout& audio_channel_layout,
+			int channel_index) override
 	{
 		audio_cadence_	= format_desc.audio_cadence;
 		sync_buffer_	= boost::circular_buffer<size_t>(format_desc.audio_cadence.size());
 		format_desc_	= format_desc;
-		consumer_->initialize(format_desc, channel_index);
+		consumer_->initialize(format_desc, audio_channel_layout, channel_index);
 	}
 
 	virtual int64_t presentation_frame_age_millis() const
@@ -124,12 +127,17 @@ public:
 		return consumer_->info();
 	}
 
+	virtual monitor::subject& monitor_output()
+	{
+		return consumer_->monitor_output();
+	}
+
 	virtual bool has_synchronization_clock() const override
 	{
 		return consumer_->has_synchronization_clock();
 	}
 
-	virtual size_t buffer_depth() const override
+	virtual int buffer_depth() const override
 	{
 		return consumer_->buffer_depth();
 	}
@@ -150,17 +158,22 @@ const safe_ptr<frame_consumer>& frame_consumer::empty()
 	struct empty_frame_consumer : public frame_consumer
 	{
 		virtual boost::unique_future<bool> send(const safe_ptr<read_frame>&) override { return caspar::wrap_as_future(false); }
-		virtual void initialize(const video_format_desc&, int) override{}
+		virtual void initialize(const video_format_desc&, const channel_layout&, int) override{}
 		virtual int64_t presentation_frame_age_millis() const { return 0; }
 		virtual std::wstring print() const override {return L"empty";}
 		virtual bool has_synchronization_clock() const override {return false;}
-		virtual size_t buffer_depth() const override {return 0;};
+		virtual int buffer_depth() const override {return 0;};
 		virtual int index() const{return -1;}
 		virtual boost::property_tree::wptree info() const override
 		{
 			boost::property_tree::wptree info;
 			info.add(L"type", L"empty-consumer");
 			return info;
+		}
+		virtual monitor::subject& monitor_output()
+		{
+			static monitor::subject monitor_subject("");
+			return monitor_subject;
 		}
 	};
 	static safe_ptr<frame_consumer> consumer = make_safe<empty_frame_consumer>();

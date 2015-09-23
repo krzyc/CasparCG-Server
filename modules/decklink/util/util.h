@@ -66,11 +66,17 @@ static BMDDisplayMode get_decklink_video_format(core::video_format::type fmt)
 	case core::video_format::x1556p2398:	return bmdMode2k2398;
 	case core::video_format::x1556p2400:	return bmdMode2k24;
 	case core::video_format::x1556p2500:	return bmdMode2k25;
+	case core::video_format::dci1080p2398:	return bmdMode2kDCI2398;
+	case core::video_format::dci1080p2400:	return bmdMode2kDCI24;
+	case core::video_format::dci1080p2500:	return bmdMode2kDCI25;
 	case core::video_format::x2160p2398:	return bmdMode4K2160p2398;
 	case core::video_format::x2160p2400:	return bmdMode4K2160p24;
 	case core::video_format::x2160p2500:	return bmdMode4K2160p25;
 	case core::video_format::x2160p2997:	return bmdMode4K2160p2997;
 	case core::video_format::x2160p3000:	return bmdMode4K2160p30;
+	case core::video_format::dci2160p2398:	return bmdMode4kDCI2398;
+	case core::video_format::dci2160p2400:	return bmdMode4kDCI24;
+	case core::video_format::dci2160p2500:	return bmdMode4kDCI25;
 	default:								return (BMDDisplayMode)ULONG_MAX;
 	}
 }
@@ -98,11 +104,17 @@ static core::video_format::type get_caspar_video_format(BMDDisplayMode fmt)
 	case bmdMode2k2398:						return core::video_format::x1556p2398;	
 	case bmdMode2k24:						return core::video_format::x1556p2400;	
 	case bmdMode2k25:						return core::video_format::x1556p2500;	
+	case bmdMode2kDCI2398:					return core::video_format::dci1080p2398;	
+	case bmdMode2kDCI24:					return core::video_format::dci1080p2400;	
+	case bmdMode2kDCI25:					return core::video_format::dci1080p2500;	
 	case bmdMode4K2160p2398:				return core::video_format::x2160p2398;	
 	case bmdMode4K2160p24:					return core::video_format::x2160p2400;	
 	case bmdMode4K2160p25:					return core::video_format::x2160p2500;	
 	case bmdMode4K2160p2997:				return core::video_format::x2160p2997;	
 	case bmdMode4K2160p30:					return core::video_format::x2160p3000;	
+	case bmdMode4kDCI2398:					return core::video_format::dci2160p2398;	
+	case bmdMode4kDCI24:					return core::video_format::dci2160p2400;	
+	case bmdMode4kDCI25:					return core::video_format::dci2160p2500;	
 	default:								return core::video_format::invalid;	
 	}
 }
@@ -117,7 +129,10 @@ BMDDisplayMode get_display_mode(const T& device, BMDDisplayMode format, BMDPixel
 	{
 		while(SUCCEEDED(iterator->Next(&mode)) && 
 				mode != nullptr && 
-				mode->GetDisplayMode() != format){}
+				mode->GetDisplayMode() != format)
+		{
+			mode.Release();
+		}
 	}
 
 	if(!mode)
@@ -164,7 +179,13 @@ static CComPtr<IDeckLink> get_device(size_t device_index)
 		
 	size_t n = 0;
 	CComPtr<IDeckLink> decklink;
-	while(n < device_index && pDecklinkIterator->Next(&decklink) == S_OK){++n;}	
+	CComPtr<IDeckLink> current;
+	while (n < device_index && pDecklinkIterator->Next(&current) == S_OK)
+	{
+		++n;
+		decklink = current;
+		current.Release();
+	}
 
 	if(n != device_index || !decklink)
 		BOOST_THROW_EXCEPTION(caspar_exception() << msg_info("Decklink device not found.") << arg_name_info("device_index") << arg_value_info(boost::lexical_cast<std::string>(device_index)));
@@ -236,7 +257,11 @@ public:
 	STDMETHOD_(ULONG,			Release())			
 	{
 		if(--ref_count_ == 0)
+		{
 			delete this;
+			return 0;
+		}
+
 		return ref_count_;
 	}
 
@@ -300,6 +325,7 @@ struct configuration
 	{
 		internal_keyer,
 		external_keyer,
+		external_separate_device_keyer,
 		default_keyer
 	};
 
@@ -311,27 +337,36 @@ struct configuration
 	};
 
 	size_t					device_index;
+	size_t					key_device_idx;
 	bool					embedded_audio;
 	core::channel_layout	audio_layout;
 	keyer_t					keyer;
 	latency_t				latency;
 	bool					key_only;
 	size_t					base_buffer_depth;
+	bool					custom_allocator;
 	
 	configuration()
 		: device_index(1)
+		, key_device_idx(0)
 		, embedded_audio(false)
 		, audio_layout(core::default_channel_layout_repository().get_by_name(L"STEREO"))
 		, keyer(default_keyer)
 		, latency(default_latency)
 		, key_only(false)
 		, base_buffer_depth(3)
+		, custom_allocator(true)
 	{
 	}
 	
-	size_t buffer_depth() const
+	int buffer_depth() const
 	{
 		return base_buffer_depth + (latency == low_latency ? 0 : 1) + (embedded_audio ? 1 : 0);
+	}
+
+	size_t key_device_index() const
+	{
+		return key_device_idx == 0 ? device_index + 1 : key_device_idx;
 	}
 
 	int num_out_channels() const
@@ -369,7 +404,8 @@ static void set_keyer(
 		configuration::keyer_t keyer,
 		const std::wstring& print)
 {
-	if (keyer == configuration::internal_keyer) 
+	if (keyer == configuration::internal_keyer
+			|| keyer == configuration::external_separate_device_keyer) 
 	{
 		BOOL value = true;
 		if (SUCCEEDED(attributes->GetFlag(BMDDeckLinkSupportsInternalKeying, &value)) && !value)
@@ -395,12 +431,13 @@ static void set_keyer(
 	}
 }
 
+template<typename Output>
 class reference_signal_detector
 {
-	CComQIPtr<IDeckLinkOutput> output_;
+	CComQIPtr<Output> output_;
 	BMDReferenceStatus last_reference_status_;
 public:
-	reference_signal_detector(const CComQIPtr<IDeckLinkOutput>& output)
+	reference_signal_detector(const CComQIPtr<Output>& output)
 		: output_(output)
 		, last_reference_status_(static_cast<BMDReferenceStatus>(-1))
 	{

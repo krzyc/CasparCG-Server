@@ -39,6 +39,18 @@ namespace caspar { namespace core {
 	
 std::vector<const producer_factory_t> g_factories;
 std::vector<const producer_factory_t> g_thumbnail_factories;
+
+tbb::atomic<bool>& destroy_producers_in_separate_thread()
+{
+	static tbb::atomic<bool> state;
+
+	return state;
+}
+
+void destroy_producers_synchronously()
+{
+	destroy_producers_in_separate_thread() = false;
+}
 	
 class destroy_producer_proxy : public frame_producer
 {	
@@ -47,12 +59,33 @@ public:
 	destroy_producer_proxy(safe_ptr<frame_producer>&& producer) 
 		: producer_(new std::shared_ptr<frame_producer>(std::move(producer)))
 	{
+		destroy_producers_in_separate_thread() = true;
 	}
 
 	~destroy_producer_proxy()
-	{		
+	{
 		static auto destroyers = std::make_shared<tbb::concurrent_bounded_queue<std::shared_ptr<executor>>>();
 		static tbb::atomic<int> destroyer_count;
+
+		if (!destroy_producers_in_separate_thread())
+		{
+			try
+			{
+				producer_.reset();
+
+				std::shared_ptr<executor> destroyer;
+
+				// Destruct any executors, causing them to execute pending tasks
+				while (destroyers->try_pop(destroyer))
+					--destroyer_count;
+			}
+			catch (...)
+			{
+				CASPAR_LOG_CURRENT_EXCEPTION();
+			}
+
+			return;
+		}
 
 		try
 		{
@@ -106,7 +139,7 @@ public:
 	virtual safe_ptr<frame_producer>							get_following_producer() const override									{return (*producer_)->get_following_producer();}
 	virtual void												set_leading_producer(const safe_ptr<frame_producer>& producer) override	{(*producer_)->set_leading_producer(producer);}
 	virtual uint32_t											nb_frames() const override												{return (*producer_)->nb_frames();}
-	virtual monitor::source&									monitor_output()														{return (*producer_)->monitor_output();}
+	virtual monitor::subject&									monitor_output()														{return (*producer_)->monitor_output();}
 };
 
 safe_ptr<core::frame_producer> create_producer_destroy_proxy(safe_ptr<core::frame_producer> producer)
@@ -141,7 +174,7 @@ public:
 	virtual safe_ptr<frame_producer>							get_following_producer() const override									{return (producer_)->get_following_producer();}
 	virtual void												set_leading_producer(const safe_ptr<frame_producer>& producer) override	{(producer_)->set_leading_producer(producer);}
 	virtual uint32_t											nb_frames() const override												{return (producer_)->nb_frames();}
-	virtual monitor::source&									monitor_output()														{return (producer_)->monitor_output();}
+	virtual monitor::subject&									monitor_output()														{return (producer_)->monitor_output();}
 };
 
 safe_ptr<core::frame_producer> create_producer_print_proxy(safe_ptr<core::frame_producer> producer)
@@ -173,7 +206,7 @@ public:
 		info.add(L"type", L"last-frame-producer");
 		return info;
 	}
-	virtual monitor::source& monitor_output()
+	virtual monitor::subject& monitor_output()
 	{
 		static monitor::subject monitor_subject("");
 		return monitor_subject;
@@ -195,7 +228,7 @@ struct empty_frame_producer : public frame_producer
 		return info;
 	}
 
-	virtual monitor::source& monitor_output()
+	virtual monitor::subject& monitor_output()
 	{
 		static monitor::subject monitor_subject("");
 		return monitor_subject;

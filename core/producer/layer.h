@@ -50,6 +50,7 @@ public:
 	void load(const safe_ptr<frame_producer>& producer, bool preview, int auto_play_delta); // nothrow
 	void play(); // nothrow
 	void pause(); // nothrow
+	void resume(); // nothrow
 	void stop(); // nothrow
 	boost::unique_future<std::wstring> call(bool foreground, const std::wstring& param);
 
@@ -66,7 +67,7 @@ public:
 	boost::property_tree::wptree info() const;
 	boost::property_tree::wptree delay_info() const;
 	
-	monitor::source& monitor_output();
+	monitor::subject& monitor_output();
 private:
 	struct implementation;
 	safe_ptr<implementation> impl_;

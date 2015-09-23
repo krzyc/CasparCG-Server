@@ -53,7 +53,11 @@ public:
 
 	// Constructors
 
-	explicit stage(const safe_ptr<diagnostics::graph>& graph, const safe_ptr<target_t>& target, const video_format_desc& format_desc);
+	explicit stage(
+			const safe_ptr<diagnostics::graph>& graph,
+			const safe_ptr<target_t>& target,
+			const video_format_desc& format_desc,
+			int channel_index);
 	
 	// Methods
 	
@@ -67,6 +71,7 @@ public:
 			
 	void load(int index, const safe_ptr<frame_producer>& producer, bool preview = false, int auto_play_delta = -1);
 	void pause(int index);
+	void resume(int index);
 	void play(int index);
 	void stop(int index);
 	void clear(int index);
@@ -93,7 +98,7 @@ public:
 	
 	void set_video_format_desc(const video_format_desc& format_desc);
 		
-	monitor::source& monitor_output();
+	monitor::subject& monitor_output();
 
 private:
 	struct implementation;

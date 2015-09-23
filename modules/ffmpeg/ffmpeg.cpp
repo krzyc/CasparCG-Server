@@ -22,17 +22,21 @@
 #include "StdAfx.h"
 
 #include "consumer/ffmpeg_consumer.h"
+#include "consumer/streaming_consumer.h"
 #include "producer/ffmpeg_producer.h"
+#include "producer/util/util.h"
 
 #include <common/log/log.h>
+#include <common/exception/win32_exception.h>
 
 #include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/producer/frame_producer.h>
+#include <core/producer/media_info/media_info.h>
+#include <core/producer/media_info/media_info_repository.h>
 
 #include <tbb/recursive_mutex.h>
-
-#include <boost/thread.hpp>
+#include <boost/thread/tss.hpp>
 
 #if defined(_MSC_VER)
 #pragma warning (disable : 4244)
@@ -55,6 +59,7 @@ namespace caspar { namespace ffmpeg {
 	
 int ffmpeg_lock_callback(void **mutex, enum AVLockOp op) 
 { 
+	win32_exception::ensure_handler_installed_for_thread("ffmpeg-thread");
 	if(!mutex)
 		return 0;
 
@@ -160,40 +165,48 @@ void log_callback(void* ptr, int level, const char* fmt, va_list vl)
     //colored_fputs(av_clip(level>>3, 0, 6), line);
 }
 
-boost::thread_specific_ptr<bool>& get_disable_logging_for_thread()
+bool& get_disable_logging_for_thread()
 {
 	static boost::thread_specific_ptr<bool> disable_logging_for_thread;
 
-	return disable_logging_for_thread;
+	auto local = disable_logging_for_thread.get();
+
+	if (!local)
+	{
+		local = new bool(false);
+		disable_logging_for_thread.reset(local);
+	}
+
+	return *local;
 }
 
 void disable_logging_for_thread()
 {
-	if (get_disable_logging_for_thread().get() == nullptr)
-		get_disable_logging_for_thread().reset(new bool); // bool value does not matter
+	get_disable_logging_for_thread() = true;
 }
 
-bool is_logging_already_disabled_for_thread()
+bool is_logging_disabled_for_thread()
 {
-	return get_disable_logging_for_thread().get() != nullptr;
+	return get_disable_logging_for_thread();
 }
 
 std::shared_ptr<void> temporary_disable_logging_for_thread(bool disable)
 {
-	if (!disable || is_logging_already_disabled_for_thread())
+	if (!disable || is_logging_disabled_for_thread())
 		return std::shared_ptr<void>();
 
 	disable_logging_for_thread();
 
 	return std::shared_ptr<void>(nullptr, [] (void*)
 	{
-		get_disable_logging_for_thread().release(); // Only works correctly if destructed in same thread as original caller.
+		get_disable_logging_for_thread() = false; // Only works correctly if destructed in same thread as original caller.
 	});
 }
 
 void log_for_thread(void* ptr, int level, const char* fmt, va_list vl)
 {
-	//if (get_disable_logging_for_thread().get() == nullptr) // It does not matter what the value of the bool is
+	win32_exception::ensure_handler_installed_for_thread("ffmpeg-thread");
+	if (!get_disable_logging_for_thread()) // It does not matter what the value of the bool is
 		log_callback(ptr, level, fmt, vl);
 }
 
@@ -236,22 +249,29 @@ void log_for_thread(void* ptr, int level, const char* fmt, va_list vl)
 //}
 //#pragma warning (pop)
 
-void init()
+void init(const safe_ptr<core::media_info_repository>& media_info_repo)
 {
 	av_lockmgr_register(ffmpeg_lock_callback);
 	av_log_set_callback(log_for_thread);
-
-	avdevice_register_all();
+		
+    avcodec_register_all();	
+    avdevice_register_all();
     avfilter_register_all();
-	//fix_yadif_filter_format_query();
-	av_register_all();
+    av_register_all();
     avformat_network_init();
-	avcodec_init();
-    avcodec_register_all();
 	
 	core::register_consumer_factory([](const core::parameters& params){return ffmpeg::create_consumer(params);});
+	core::register_consumer_factory([](const core::parameters& params){return ffmpeg::create_streaming_consumer(params);});
 	core::register_producer_factory(create_producer);
 	core::register_thumbnail_producer_factory(create_thumbnail_producer);
+
+	media_info_repo->register_extractor(
+			[](const std::wstring& file, core::media_info& info) -> bool
+			{
+				auto disable_logging = temporary_disable_logging_for_thread(true);
+
+				return is_valid_file(file) && try_get_duration(file, info.duration, info.time_base);
+			});
 }
 
 void uninit()

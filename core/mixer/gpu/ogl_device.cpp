@@ -32,6 +32,7 @@
 #include <common/gl/gl_check.h>
 
 #include <boost/foreach.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 #include <gl/glew.h>
 
@@ -83,22 +84,24 @@ ogl_device::~ogl_device()
 	});
 }
 
-safe_ptr<device_buffer> ogl_device::allocate_device_buffer(size_t width, size_t height, size_t stride)
+safe_ptr<device_buffer> ogl_device::allocate_device_buffer(size_t width, size_t height, size_t stride, bool mipmapped)
 {
 	std::shared_ptr<device_buffer> buffer;
 	try
 	{
-		buffer.reset(new device_buffer(width, height, stride));
+		buffer.reset(new device_buffer(width, height, stride, mipmapped));
 	}
 	catch(...)
 	{
 		try
 		{
 			yield();
-			gc().wait();
+			auto future = gc();
+			yield();
+			future.wait();
 					
 			// Try again
-			buffer.reset(new device_buffer(width, height, stride));
+			buffer.reset(new device_buffer(width, height, stride, mipmapped));
 		}
 		catch(...)
 		{
@@ -109,14 +112,14 @@ safe_ptr<device_buffer> ogl_device::allocate_device_buffer(size_t width, size_t 
 	return make_safe_ptr(buffer);
 }
 				
-safe_ptr<device_buffer> ogl_device::create_device_buffer(size_t width, size_t height, size_t stride)
+safe_ptr<device_buffer> ogl_device::create_device_buffer(size_t width, size_t height, size_t stride, bool mipmapped)
 {
 	CASPAR_VERIFY(stride > 0 && stride < 5);
 	CASPAR_VERIFY(width > 0 && height > 0);
-	auto& pool = device_pools_[stride-1][((width << 16) & 0xFFFF0000) | (height & 0x0000FFFF)];
+	auto& pool = device_pools_[stride-1 + (mipmapped ? 4 : 0)][((width << 16) & 0xFFFF0000) | (height & 0x0000FFFF)];
 	std::shared_ptr<device_buffer> buffer;
 	if(!pool->items.try_pop(buffer))		
-		buffer = executor_.invoke([&]{return allocate_device_buffer(width, height, stride);}, high_priority);			
+		buffer = executor_.invoke([&]{return allocate_device_buffer(width, height, stride, mipmapped);}, high_priority);			
 	
 	//++pool->usage_count;
 
@@ -143,7 +146,9 @@ safe_ptr<host_buffer> ogl_device::allocate_host_buffer(size_t size, host_buffer:
 		try
 		{
 			yield();
-			gc().wait();
+			auto future = gc();
+			yield();
+			future.wait();
 
 			// Try again
 			buffer.reset(new host_buffer(size, usage));
@@ -235,6 +240,97 @@ void ogl_device::flush()
 void ogl_device::yield()
 {
 	executor_.yield();
+}
+
+boost::property_tree::wptree ogl_device::info() const
+{
+	boost::property_tree::wptree info;
+
+	boost::property_tree::wptree pooled_device_buffers;
+	size_t total_pooled_device_buffer_size = 0;
+	size_t total_pooled_device_buffer_count = 0;
+
+	for (size_t i = 0; i < device_pools_.size(); ++i)
+	{
+		auto& pools = device_pools_.at(i);
+		bool mipmapping = i > 3;
+		int stride = mipmapping ? i - 3 : i + 1;
+
+		BOOST_FOREACH(auto& pool, pools)
+		{
+			auto width = pool.first >> 16;
+			auto height = pool.first & 0x0000FFFF;
+			auto size = width * height * stride;
+			auto count = pool.second->items.size();
+
+			if (count == 0)
+				continue;
+
+			boost::property_tree::wptree pool_info;
+
+			pool_info.add(L"stride", stride);
+			pool_info.add(L"mipmapping", mipmapping);
+			pool_info.add(L"width", width);
+			pool_info.add(L"height", height);
+			pool_info.add(L"size", size);
+			pool_info.add(L"count", count);
+
+			total_pooled_device_buffer_size += size * count;
+			total_pooled_device_buffer_count += count;
+
+			pooled_device_buffers.add_child(L"device_buffer_pool", pool_info);
+		}
+	}
+
+	info.add_child(L"gl.details.pooled_device_buffers", pooled_device_buffers);
+
+	boost::property_tree::wptree pooled_host_buffers;
+	size_t total_read_size = 0;
+	size_t total_write_size = 0;
+	size_t total_read_count = 0;
+	size_t total_write_count = 0;
+
+	for (size_t i = 0; i < host_pools_.size(); ++i)
+	{
+		auto& pools = host_pools_.at(i);
+		host_buffer::usage_t usage = static_cast<host_buffer::usage_t>(i);
+
+		BOOST_FOREACH(auto& pool, pools)
+		{
+			auto size = pool.first;
+			auto count = pool.second->items.size();
+
+			if (count == 0)
+				continue;
+
+			boost::property_tree::wptree pool_info;
+
+			pool_info.add(L"usage", usage == host_buffer::read_only
+				? L"read_only" : L"write_only");
+			pool_info.add(L"size", size);
+			pool_info.add(L"count", count);
+
+			pooled_host_buffers.add_child(L"host_buffer_pool", pool_info);
+
+			(usage == host_buffer::read_only
+					? total_read_count : total_write_count) += count;
+			(usage == host_buffer::read_only
+					? total_read_size : total_write_size) += size * count;
+		}
+	}
+
+	info.add_child(L"gl.details.pooled_host_buffers", pooled_host_buffers);
+
+	info.add(L"gl.summary.pooled_device_buffers.total_count", total_pooled_device_buffer_count);
+	info.add(L"gl.summary.pooled_device_buffers.total_size", total_pooled_device_buffer_size);
+	info.add_child(L"gl.summary.all_device_buffers", device_buffer::info());
+	info.add(L"gl.summary.pooled_host_buffers.total_read_count", total_read_count);
+	info.add(L"gl.summary.pooled_host_buffers.total_write_count", total_write_count);
+	info.add(L"gl.summary.pooled_host_buffers.total_read_size", total_read_size);
+	info.add(L"gl.summary.pooled_host_buffers.total_write_size", total_write_size);
+	info.add_child(L"gl.summary.all_host_buffers", host_buffer::info());
+
+	return info;
 }
 
 boost::unique_future<void> ogl_device::gc()

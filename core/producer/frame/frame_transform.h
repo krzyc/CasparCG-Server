@@ -48,6 +48,24 @@ struct levels
 	double max_output;
 };
 
+struct corners
+{
+	boost::array<double, 2> ul;
+	boost::array<double, 2> ur;
+	boost::array<double, 2> lr;
+	boost::array<double, 2> ll;
+
+	corners();
+};
+
+struct rectangle
+{
+	boost::array<double, 2> ul;
+	boost::array<double, 2> lr;
+
+	rectangle();
+};
+
 struct frame_transform 
 {
 public:
@@ -59,10 +77,14 @@ public:
 	double					contrast;
 	double					brightness;
 	double					saturation;
-	boost::array<double, 2>	fill_translation; 
-	boost::array<double, 2>	fill_scale; 
-	boost::array<double, 2>	clip_translation;  
-	boost::array<double, 2>	clip_scale;  
+	boost::array<double, 2>	anchor;
+	boost::array<double, 2>	fill_translation;
+	boost::array<double, 2>	fill_scale;
+	boost::array<double, 2>	clip_translation;
+	boost::array<double, 2>	clip_scale;
+	double					angle;
+	rectangle				crop;
+	corners					perspective;
 	levels					levels;
 
 	field_mode::type		field_mode;
@@ -79,4 +101,9 @@ bool operator<(const frame_transform& lhs, const frame_transform& rhs);
 bool operator==(const frame_transform& lhs, const frame_transform& rhs);
 bool operator!=(const frame_transform& lhs, const frame_transform& rhs);
 
-}}
+namespace detail {
+
+void set_current_aspect_ratio(double aspect_ratio);
+double get_current_aspect_ratio();
+
+}}}

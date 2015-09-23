@@ -22,6 +22,7 @@
 #pragma once
 
 #include "../consumer/frame_consumer.h"
+#include "../monitor/monitor.h"
 
 #include <common/memory/safe_ptr.h>
 #include <common/concurrency/target.h>
@@ -37,7 +38,7 @@ class output : public target<std::pair<safe_ptr<read_frame>, std::shared_ptr<voi
 			 , boost::noncopyable
 {
 public:
-	explicit output(const safe_ptr<diagnostics::graph>& graph, const video_format_desc& format_desc, int channel_index);
+	explicit output(const safe_ptr<diagnostics::graph>& graph, const video_format_desc& format_desc, const channel_layout& audio_channel_layout, int channel_index);
 
 	// target
 	
@@ -56,6 +57,8 @@ public:
 	boost::unique_future<boost::property_tree::wptree> delay_info() const;
 
 	bool empty() const;
+
+	monitor::subject& monitor_output();
 private:
 	struct implementation;
 	safe_ptr<implementation> impl_;

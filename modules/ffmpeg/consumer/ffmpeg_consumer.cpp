@@ -25,9 +25,11 @@
 
 #include "ffmpeg_consumer.h"
 
+#include "../ffmpeg_params.h"
 #include "../producer/audio/audio_resampler.h"
 
 #include <core/parameters/parameters.h>
+#include <core/monitor/monitor.h>
 #include <core/mixer/read_frame.h>
 #include <core/mixer/audio/audio_util.h>
 #include <core/consumer/frame_consumer.h>
@@ -107,25 +109,13 @@ int av_opt_set(void *obj, const char *name, const char *val, int search_flags)
 	return ::av_opt_set(obj, name, val, search_flags);
 }
 
-struct option
-{
-	std::string name;
-	std::string value;
-
-	option(std::string name, std::string value)
-		: name(std::move(name))
-		, value(std::move(value))
-	{
-	}
-};
-	
 struct output_format
 {
 	AVOutputFormat* format;
 	int				width;
 	int				height;
-	CodecID			vcodec;
-	CodecID			acodec;
+	AVCodecID		vcodec;
+	AVCodecID		acodec;
 
 	output_format(const core::video_format_desc& format_desc, const std::string& filename, std::vector<option>& options)
 		: format(av_guess_format(nullptr, filename.c_str(), nullptr))
@@ -134,6 +124,10 @@ struct output_format
 		, vcodec(CODEC_ID_NONE)
 		, acodec(CODEC_ID_NONE)
 	{
+		if (format == nullptr)
+			BOOST_THROW_EXCEPTION(caspar_exception()
+				<< msg_info(filename + " not a supported file for recording"));
+
 		boost::range::remove_erase_if(options, [&](const option& o)
 		{
 			return set_opt(o.name, o.value);
@@ -222,7 +216,7 @@ struct ffmpeg_consumer : boost::noncopyable
 {		
 	const std::string						filename_;
 		
-	const std::shared_ptr<AVFormatContext>	oc_;
+	std::shared_ptr<AVFormatContext>		oc_;
 	const core::video_format_desc			format_desc_;
 	const core::channel_layout				channel_layout_;
 	
@@ -253,7 +247,6 @@ public:
 		: filename_(filename)
 		, video_outbuf_(1920*1080*8)
 		, audio_outbuf_(10000)
-		, oc_(avformat_alloc_context(), av_free)
 		, format_desc_(format_desc)
 		, channel_layout_(audio_channel_layout)
 		, encode_executor_(print())
@@ -265,7 +258,7 @@ public:
 		current_encoding_delay_ = 0;
 
 		// TODO: Ask stakeholders about case where file already exists.
-		boost::filesystem2::remove(boost::filesystem2::wpath(env::media_folder() + widen(filename))); // Delete the file if it exists
+		boost::filesystem::remove(boost::filesystem::path(env::media_folder() + widen(filename))); // Delete the file if it exists
 
 		graph_->set_color("frame-time", diagnostics::color(0.1f, 1.0f, 0.1f));
 		graph_->set_color("dropped-frame", diagnostics::color(0.3f, 0.6f, 0.3f));
@@ -273,13 +266,17 @@ public:
 		diagnostics::register_graph(graph_);
 
 		encode_executor_.set_capacity(8);
-
-		oc_->oformat = output_format_.format;
 				
-		THROW_ON_ERROR2(av_set_parameters(oc_.get(), nullptr), "[ffmpeg_consumer]");
+		AVFormatContext* oc;
 
-		strcpy_s(oc_->filename, filename_.c_str());
-		
+		THROW_ON_ERROR2(avformat_alloc_output_context2(
+			&oc, 
+			output_format_.format, 
+			nullptr, 
+			filename_.c_str()), "[ffmpeg_consumer]");
+
+		oc_.reset(oc);
+								
 		//  Add the audio and video streams using the default format codecs	and initialize the codecs.
 		auto options2 = options;
 		video_st_ = add_video_stream(options2);
@@ -287,13 +284,13 @@ public:
 		if (!key_only)
 			audio_st_ = add_audio_stream(options);
 				
-		dump_format(oc_.get(), 0, filename_.c_str(), 1);
+		av_dump_format(oc_.get(), 0, filename_.c_str(), 1);
 		 
 		// Open the output ffmpeg, if needed.
 		if (!(oc_->oformat->flags & AVFMT_NOFILE)) 
-			THROW_ON_ERROR2(avio_open(&oc_->pb, filename_.c_str(), URL_WRONLY), "[ffmpeg_consumer]");
+			THROW_ON_ERROR2(avio_open2(&oc_->pb, filename_.c_str(), AVIO_FLAG_WRITE, NULL, NULL), "[ffmpeg_consumer]");
 				
-		THROW_ON_ERROR2(av_write_header(oc_.get()), "[ffmpeg_consumer]");
+		THROW_ON_ERROR2(avformat_write_header(oc_.get(), nullptr), "[ffmpeg_consumer]");
 
 		if(options.size() > 0)
 		{
@@ -309,9 +306,6 @@ public:
 		encode_executor_.stop();
 		encode_executor_.join();
 
-		// Flush
-		LOG_ON_ERROR2(av_interleaved_write_frame(oc_.get(), nullptr), "[ffmpeg_consumer]");
-		
 		LOG_ON_ERROR2(av_write_trailer(oc_.get()), "[ffmpeg_consumer]");
 		
 		if (!key_only_)
@@ -413,10 +407,10 @@ public:
 			c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 		
 		c->thread_count = boost::thread::hardware_concurrency();
-		if(avcodec_open(c, encoder) < 0)
+		if(avcodec_open2(c, encoder, nullptr) < 0)
 		{
 			c->thread_count = 1;
-			THROW_ON_ERROR2(avcodec_open(c, encoder), "[ffmpeg_consumer]");
+			THROW_ON_ERROR2(avcodec_open2(c, encoder, nullptr), "[ffmpeg_consumer]");
 		}
 
 		return std::shared_ptr<AVStream>(st, [](AVStream* st)
@@ -448,7 +442,7 @@ public:
 		c->codec_type		= AVMEDIA_TYPE_AUDIO;
 		c->sample_rate		= 48000;
 		c->channels			= channel_layout_.num_channels;
-		c->sample_fmt		= SAMPLE_FMT_S16;
+		c->sample_fmt		= AV_SAMPLE_FMT_S16;
 
 		if(output_format_.vcodec == CODEC_ID_FLV1)		
 			c->sample_rate	= 44100;		
@@ -461,7 +455,7 @@ public:
 			return ffmpeg::av_opt_set(c, o.name.c_str(), o.value.c_str(), AV_OPT_SEARCH_CHILDREN) > -1;
 		});
 
-		THROW_ON_ERROR2(avcodec_open(c, encoder), "[ffmpeg_consumer]");
+		THROW_ON_ERROR2(avcodec_open2(c, encoder, nullptr), "[ffmpeg_consumer]");
 
 		return std::shared_ptr<AVStream>(st, [](AVStream* st)
 		{
@@ -646,7 +640,6 @@ struct ffmpeg_consumer_proxy : public core::frame_consumer
 	const std::wstring				filename_;
 	const std::vector<option>		options_;
 	const bool						separate_key_;
-	core::video_format_desc			format_desc_;
 
 	std::unique_ptr<ffmpeg_consumer> consumer_;
 	std::unique_ptr<ffmpeg_consumer> key_only_consumer_;
@@ -660,9 +653,33 @@ public:
 	{
 	}
 	
-	virtual void initialize(const core::video_format_desc& format_desc, int)
+	virtual void initialize(
+			const core::video_format_desc& format_desc,
+			const core::channel_layout& audio_channel_layout,
+			int)
 	{
-		format_desc_ = format_desc;
+		consumer_.reset();
+		key_only_consumer_.reset();
+		consumer_.reset(new ffmpeg_consumer(
+				narrow(filename_),
+				format_desc,
+				options_,
+				false,
+				audio_channel_layout));
+
+		if (separate_key_)
+		{
+			boost::filesystem::path fill_file(filename_);
+			auto without_extension = fill_file.stem().wstring();
+			auto key_file = env::media_folder() + without_extension + L"_A" + fill_file.extension().wstring();
+			
+			key_only_consumer_.reset(new ffmpeg_consumer(
+					narrow(key_file),
+					format_desc,
+					options_,
+					true,
+					audio_channel_layout));
+		}
 	}
 
 	virtual int64_t presentation_frame_age_millis() const override
@@ -670,11 +687,14 @@ public:
 		return consumer_ ? consumer_->current_encoding_delay_ : 0;
 	}
 	
+	virtual core::monitor::subject& monitor_output()
+	{
+		static core::monitor::subject monitor_subject("");
+		return monitor_subject;
+	}
+
 	virtual boost::unique_future<bool> send(const safe_ptr<core::read_frame>& frame) override
 	{
-		if (!consumer_)
-			do_initialize(frame->multichannel_view().channel_layout());
-
 		bool ready_for_frame = consumer_->ready_for_frame();
 
 		if (ready_for_frame && separate_key_)
@@ -717,9 +737,9 @@ public:
 		return false;
 	}
 
-	virtual size_t buffer_depth() const override
+	virtual int buffer_depth() const override
 	{
-		return 1;
+		return -1;
 	}
 
 	virtual int index() const override
@@ -729,28 +749,6 @@ public:
 private:
 	void do_initialize(const core::channel_layout& channel_layout)
 	{
-		consumer_.reset();
-		key_only_consumer_.reset();
-		consumer_.reset(new ffmpeg_consumer(
-				narrow(filename_),
-				format_desc_,
-				options_,
-				false,
-				channel_layout));
-
-		if (separate_key_)
-		{
-			boost::filesystem::wpath fill_file(filename_);
-			auto without_extension = fill_file.stem();
-			auto key_file = env::media_folder() + without_extension + L"_A" + fill_file.extension();
-			
-			key_only_consumer_.reset(new ffmpeg_consumer(
-					narrow(key_file),
-					format_desc_,
-					options_,
-					true,
-					channel_layout));
-		}
 	}
 };	
 

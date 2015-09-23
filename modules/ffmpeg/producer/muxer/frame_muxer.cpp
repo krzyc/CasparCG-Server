@@ -56,15 +56,47 @@ extern "C"
 #include <boost/foreach.hpp>
 #include <boost/range/algorithm_ext/push_back.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/range/algorithm/copy.hpp>
+#include <boost/optional.hpp>
 
 #include <deque>
 #include <queue>
 #include <vector>
+#include <array>
 
 using namespace caspar::core;
 
 namespace caspar { namespace ffmpeg {
-	
+
+struct av_frame_format
+{
+	int										pix_format;
+	std::array<int, AV_NUM_DATA_POINTERS>	line_sizes;
+	int										width;
+	int										height;
+
+	av_frame_format(const AVFrame& frame)
+		: pix_format(frame.format)
+		, width(frame.width)
+		, height(frame.height)
+	{
+		boost::copy(frame.linesize, line_sizes.begin());
+	}
+
+	bool operator==(const av_frame_format& other) const
+	{
+		return pix_format == other.pix_format
+			&& line_sizes == other.line_sizes
+			&& width == other.width
+			&& height == other.height;
+	}
+
+	bool operator!=(const av_frame_format& other) const
+	{
+		return !(*this == other);
+	}
+};
+
 struct frame_muxer::implementation : boost::noncopyable
 {	
 	std::queue<std::queue<safe_ptr<write_frame>>>	video_streams_;
@@ -79,9 +111,11 @@ struct frame_muxer::implementation : boost::noncopyable
 	std::vector<size_t>								audio_cadence_;
 			
 	safe_ptr<core::frame_factory>					frame_factory_;
-	
-	filter											filter_;
+	boost::optional<av_frame_format>				previously_filtered_frame_;
+
+	std::unique_ptr<filter>							filter_;
 	const std::wstring								filter_str_;
+	const bool										multithreaded_filter_;
 	const bool										thumbnail_mode_;
 	bool											force_deinterlacing_;
 	const core::channel_layout						audio_channel_layout_;
@@ -90,6 +124,7 @@ struct frame_muxer::implementation : boost::noncopyable
 			double in_fps,
 			const safe_ptr<core::frame_factory>& frame_factory,
 			const std::wstring& filter_str,
+			bool multithreaded_filter,
 			bool thumbnail_mode,
 			const core::channel_layout& audio_channel_layout)
 		: display_mode_(display_mode::invalid)
@@ -100,6 +135,7 @@ struct frame_muxer::implementation : boost::noncopyable
 		, audio_cadence_(format_desc_.audio_cadence)
 		, frame_factory_(frame_factory)
 		, filter_str_(filter_str)
+		, multithreaded_filter_(multithreaded_filter)
 		, thumbnail_mode_(thumbnail_mode)
 		, force_deinterlacing_(false)
 		, audio_channel_layout_(audio_channel_layout)
@@ -116,7 +152,18 @@ struct frame_muxer::implementation : boost::noncopyable
 	{		
 		if(!video_frame)
 			return;
+
+		av_frame_format current_frame_format(*video_frame);
 		
+		if (previously_filtered_frame_ && video_frame->data[0] && *previously_filtered_frame_ != current_frame_format)
+		{
+			// Fixes bug where avfilter crashes server on some DV files (starts in YUV420p but changes to YUV411p after the first frame).
+			CASPAR_LOG(info) << L"[frame_muxer] Frame format has changed. Resetting display mode.";
+			display_mode_ = display_mode::invalid;
+			filter_.reset();
+			previously_filtered_frame_ = boost::none;
+		}
+
 		if(video_frame == flush_video())
 		{	
 			video_streams_.push(std::queue<safe_ptr<write_frame>>());
@@ -136,7 +183,7 @@ struct frame_muxer::implementation : boost::noncopyable
 				display_mode_ = display_mode::invalid;
 			}
 
-			if(display_mode_ == display_mode::invalid)
+			if(!filter_ || display_mode_ == display_mode::invalid)
 				update_display_mode(video_frame, force_deinterlacing_);
 				
 			if(hints & core::frame_producer::ALPHA_HINT)
@@ -146,13 +193,17 @@ struct frame_muxer::implementation : boost::noncopyable
 			if(video_frame->format == CASPAR_PIX_FMT_LUMA) // CASPAR_PIX_FMT_LUMA is not valid for filter, change it to GRAY8
 				video_frame->format = PIX_FMT_GRAY8;
 
-			filter_.push(video_frame);
-			BOOST_FOREACH(auto& av_frame, filter_.poll_all())
+			if (filter_)
 			{
-				if(video_frame->format == PIX_FMT_GRAY8 && format == CASPAR_PIX_FMT_LUMA)
-					av_frame->format = format;
+				filter_->push(video_frame);
+				previously_filtered_frame_ = current_frame_format;
+				BOOST_FOREACH(auto& av_frame, filter_->poll_all())
+				{
+					if(video_frame->format == PIX_FMT_GRAY8 && format == CASPAR_PIX_FMT_LUMA)
+						av_frame->format = format;
 
-				video_streams_.back().push(make_write_frame(this, av_frame, frame_factory_, hints, audio_channel_layout_));
+					video_streams_.back().push(make_write_frame(this, av_frame, frame_factory_, hints, audio_channel_layout_));
+				}
 			}
 		}
 
@@ -348,16 +399,19 @@ struct frame_muxer::implementation : boost::noncopyable
 			display_mode_ = display_mode::simple;
 		}
 			
-		if(!boost::iequals(filter_.filter_str(), filter_str))
+		if(!filter_ || !boost::iequals(filter_->filter_str(), filter_str))
 		{
-			for(int n = 0; n < filter_.delay(); ++n)
-			{
-				filter_.push(frame);
-				auto av_frame = filter_.poll();
-				if(av_frame)							
-					video_streams_.back().push(make_write_frame(this, make_safe_ptr(av_frame), frame_factory_, 0, audio_channel_layout_));
-			}
-			filter_ = filter(filter_str);
+			filter_.reset(new filter(
+				frame->width, 
+				frame->height,
+				boost::rational<int>(1000000, static_cast<int>(in_fps_ * 1000000)),
+				boost::rational<int>(static_cast<int>(in_fps_ * 1000000), 1000000),
+				boost::rational<int>(frame->sample_aspect_ratio.num, frame->sample_aspect_ratio.den),
+				static_cast<AVPixelFormat>(frame->format),
+				std::vector<AVPixelFormat>(),
+				narrow(filter_str),
+				multithreaded_filter_));
+			previously_filtered_frame_ = boost::none;
 			if (!thumbnail_mode_)
 				CASPAR_LOG(info) << L"[frame_muxer] " << display_mode::print(display_mode_) << L" " << print_mode(frame->width, frame->height, in_fps_, frame->interlaced_frame > 0);
 		}
@@ -367,7 +421,7 @@ struct frame_muxer::implementation : boost::noncopyable
 	{
 		uint64_t nb_frames2 = nb_frames;
 		
-		if(filter_.is_double_rate()) // Take into account transformations in filter.
+		if(filter_ && filter_->is_double_rate()) // Take into account transformations in filter.
 			nb_frames2 *= 2;
 
 		switch(display_mode_) // Take into account transformation in run.
@@ -391,8 +445,9 @@ frame_muxer::frame_muxer(
 		const safe_ptr<core::frame_factory>& frame_factory,
 		bool thumbnail_mode,
 		const core::channel_layout& audio_channel_layout,
-		const std::wstring& filter)
-	: impl_(new implementation(in_fps, frame_factory, filter, thumbnail_mode, audio_channel_layout)){}
+		const std::wstring& filter,
+		bool multithreaded_filter)
+	: impl_(new implementation(in_fps, frame_factory, filter, multithreaded_filter, thumbnail_mode, audio_channel_layout)){}
 void frame_muxer::push(const std::shared_ptr<AVFrame>& video_frame, int hints){impl_->push(video_frame, hints);}
 void frame_muxer::push(const std::shared_ptr<core::audio_buffer>& audio_samples){return impl_->push(audio_samples);}
 std::shared_ptr<basic_frame> frame_muxer::poll(){return impl_->poll();}

@@ -27,6 +27,7 @@
 	#define _CRTDBG_MAP_ALLOC
 	#include <stdlib.h>
 	#include <crtdbg.h>
+	//#include <vld.h>
 #else
 	#include <tbb/tbbmalloc_proxy.h>
 #endif
@@ -46,13 +47,14 @@
 #include <atlbase.h>
 
 #include <protocol/amcp/AMCPProtocolStrategy.h>
-#include <protocol/osc/server.h>
 
 #include <modules/bluefish/bluefish.h>
 #include <modules/decklink/decklink.h>
 #include <modules/flash/flash.h>
 #include <modules/ffmpeg/ffmpeg.h>
 #include <modules/image/image.h>
+#include <modules/newtek/util/air_send.h>
+#include <modules/html/html.h>
 
 #include <common/env.h>
 #include <common/exception/win32_exception.h>
@@ -72,6 +74,9 @@
 #include <boost/thread/future.hpp>
 #include <boost/locale.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
+#include <boost/logic/tribool.hpp>
+
+#include <functional>
 
 // NOTE: This is needed in order to make CComObject work since this is not a real ATL project.
 CComModule _AtlModule;
@@ -160,6 +165,7 @@ void print_info()
 	CASPAR_LOG(info) << L"FFMPEG-swscale "  << caspar::ffmpeg::get_swscale_version();
 	CASPAR_LOG(info) << L"Flash "			<< caspar::flash::get_version();
 	CASPAR_LOG(info) << L"Template-Host "	<< caspar::flash::get_cg_version();
+	CASPAR_LOG(info) << L"NewTek iVGA "		<< (caspar::newtek::airsend::is_available() ? L"available" : L"unavailable (" + caspar::newtek::airsend::dll_name() + L")");
 }
 
 LONG WINAPI UserUnhandledExceptionFilter(EXCEPTION_POINTERS* info)
@@ -183,8 +189,33 @@ std::wstring make_upper_case(const std::wstring& str)
 	return boost::to_upper_copy(str);
 }
 
-int main(int argc, wchar_t* argv[])
-{	
+struct init_t
+{
+	std::wstring name;
+	std::function<void()> uninit;
+
+	init_t(std::wstring name, std::function<void()> init, std::function<void()> uninit)
+		: name(name)
+		, uninit(uninit)
+	{
+		if (init)
+			init();
+		CASPAR_LOG(info) << L"Initialized " << name << L" module.";
+	}
+
+	~init_t()
+	{
+		if (uninit)
+			uninit();
+		CASPAR_LOG(info) << L"Uninitialized " << name << L" module.";
+	}
+};
+
+int main(int argc, char* argv[])
+{
+	if (!caspar::html::init())
+		return 0;
+
 	static_assert(sizeof(void*) == 4, "64-bit code generation is not supported.");
 	
 	SetUnhandledExceptionFilter(UserUnhandledExceptionFilter);
@@ -212,7 +243,7 @@ int main(int argc, wchar_t* argv[])
 	SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 
 	// Install structured exception handler.
-	caspar::win32_exception::install_handler();
+	caspar::win32_exception::ensure_handler_installed_for_thread("main-thread");
 				
 	// Increase time precision. This will increase accuracy of function like Sleep(1) from 10 ms to 1 ms.
 	struct inc_prec
@@ -227,18 +258,23 @@ int main(int argc, wchar_t* argv[])
 		tbb_thread_installer(){observe(true);}
 		void on_scheduler_entry(bool is_worker)
 		{
-			//caspar::detail::SetThreadName(GetCurrentThreadId(), "tbb-worker-thread");
-			caspar::win32_exception::install_handler();
+			caspar::win32_exception::ensure_handler_installed_for_thread("tbb-worker-thread");
 		}
 	} tbb_thread_installer;
 
-	bool restart = false;
+	boost::tribool restart = false;
 	tbb::task_scheduler_init init;
+	std::wstring config_file_name(L"casparcg.config");
 	
 	try 
 	{
 		// Configure environment properties from configuration.
-		caspar::env::configure(L"casparcg.config");
+		if (argc >= 2)
+		{
+			config_file_name = caspar::widen(argv[1]);
+		}
+
+		caspar::env::configure(config_file_name);
 				
 		caspar::log::set_log_level(caspar::env::properties().get(L"configuration.log-level", L"debug"));
 
@@ -258,44 +294,57 @@ int main(int argc, wchar_t* argv[])
 		print_info();
 			
 		std::wstringstream str;
-		boost::property_tree::xml_writer_settings<wchar_t> w(' ', 3);
+		boost::property_tree::xml_writer_settings<std::wstring> w(' ', 3);
 		boost::property_tree::write_xml(str, caspar::env::properties(), w);
-		CASPAR_LOG(info) << L"casparcg.config:\n-----------------------------------------\n" << str.str().c_str() << L"-----------------------------------------";
+		CASPAR_LOG(info) << config_file_name << L":\n-----------------------------------------\n" << str.str().c_str() << L"-----------------------------------------";
 		tbb::atomic<bool> wait_for_keypress;
 		wait_for_keypress = false;
 
 		{
-			boost::promise<bool> shutdown_server_now;
-			boost::unique_future<bool> shutdown_server = shutdown_server_now.get_future();
+			init_t html_init(L"html", nullptr, caspar::html::uninit);
+
+			boost::promise<boost::tribool> shutdown_server_now;
+			std::function<void (bool)> shutdown_server_now_func =
+					[&shutdown_server_now](bool restart)
+					{
+						shutdown_server_now.set_value(restart);
+					};
+			auto shutdown_server = shutdown_server_now.get_future();
 
 			// Create server object which initializes channels, protocols and controllers.
-			caspar::server caspar_server(shutdown_server_now);
+			caspar::server caspar_server(shutdown_server_now_func);
+
+			// Create a amcp parser for console commands.
+			caspar::protocol::amcp::AMCPProtocolStrategy amcp(
+					L"Console",
+					caspar_server.get_channels(),
+					caspar_server.get_thumbnail_generator(),
+					caspar_server.get_media_info_repo(),
+					caspar_server.get_ogl_device(),
+					shutdown_server_now_func);
+
+			// Create a dummy client which prints amcp responses to console.
+			auto console_client = std::make_shared<caspar::IO::ConsoleClientInfo>();
+			std::wstring wcmd;
+			std::wstring upper_cmd;
 
 			// Use separate thread for the blocking console input, will be terminated 
 			// anyway when the main thread terminates.
-			boost::thread stdin_thread([&caspar_server, &shutdown_server_now, &wait_for_keypress]
+			boost::thread stdin_thread([&]
 			{
-				// Create a amcp parser for console commands.
-				caspar::protocol::amcp::AMCPProtocolStrategy amcp(
-						caspar_server.get_channels(),
-						caspar_server.get_thumbnail_generator(),
-						shutdown_server_now);
+				caspar::win32_exception::ensure_handler_installed_for_thread("stdin-thread");
 
-				// Create a dummy client which prints amcp responses to console.
-				auto console_client = std::make_shared<caspar::IO::ConsoleClientInfo>();
-				std::wstring wcmd;
-	
 				while(true)
 				{
 					std::getline(std::wcin, wcmd); // TODO: It's blocking...
 				
 					//boost::to_upper(wcmd);  // TODO COMPILER crashes on this line, Strange!
-					auto upper_cmd = make_upper_case(wcmd);
+					upper_cmd = make_upper_case(wcmd);
 
 					if(upper_cmd == L"EXIT" || upper_cmd == L"Q" || upper_cmd == L"QUIT" || upper_cmd == L"BYE")
 					{
 						wait_for_keypress = true;
-						shutdown_server_now.set_value(false); // False to not restart server
+						shutdown_server_now.set_value(boost::indeterminate);
 						break;
 					}
 				
@@ -357,21 +406,29 @@ int main(int argc, wchar_t* argv[])
 
 					wcmd += L"\r\n";
 					amcp.Parse(wcmd.c_str(), wcmd.length(), console_client);
-				}	
+
+					if (shutdown_server.is_ready())
+					{
+						break;
+					}
+				}
 			});
 			stdin_thread.detach();
 			restart = shutdown_server.get();
+
+			if (restart == boost::indeterminate)
+				Sleep(200); // Give the console thread a chance to finish amcp.Parse if a KILL or RESTART was issued via the console.
 		}
 		Sleep(500);
 		CASPAR_LOG(info) << "Successfully shutdown CasparCG Server.";
 
 		if (wait_for_keypress)
-			system("pause");	
+			system("pause");
 	}
 	catch(boost::property_tree::file_parser_error&)
 	{
 		CASPAR_LOG_CURRENT_EXCEPTION();
-		CASPAR_LOG(fatal) << L"Unhandled configuration error in main thread. Please check the configuration file (casparcg.config) for errors.";
+		CASPAR_LOG(fatal) << L"Unhandled configuration error in main thread. Please check the configuration file (" << config_file_name << L") for errors.";
 		system("pause");	
 	}
 	catch(...)
@@ -381,7 +438,7 @@ int main(int argc, wchar_t* argv[])
 		Sleep(1000);
 		std::wcout << L"\n\nCasparCG will automatically shutdown. See the log file located at the configured log-file folder for more information.\n\n";
 		Sleep(4000);
-	}	
+	}
 	
 	return restart ? 5 : 0;
 }

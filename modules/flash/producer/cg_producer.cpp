@@ -51,7 +51,7 @@ public:
 		if(filename.size() > 0 && filename[0] == L'/')
 			filename = filename.substr(1, filename.size()-1);
 
-		if(boost::filesystem::wpath(filename).extension() == L"")
+		if(boost::filesystem::path(filename).extension().wstring() == L"")
 			filename += L".ft";
 		
 		auto str = (boost::wformat(L"<invoke name=\"Add\" returntype=\"xml\"><arguments><number>%1%</number><string>%2%</string>%3%<string>%4%</string><string><![CDATA[%5%]]></string></arguments></invoke>") % layer % filename % (play_on_load?TEXT("<true/>"):TEXT("<false/>")) % label % data).str();
@@ -118,32 +118,39 @@ public:
 
 	boost::unique_future<std::wstring> call(const std::wstring& str)
 	{		
-		static const boost::wregex add_exp			(L"ADD (?<LAYER>\\d+) (?<FILENAME>[^\\s]+) (?<PLAY_ON_LOAD>\\d)( (?<DATA>.*))?");
-		static const boost::wregex remove_exp		(L"REMOVE (?<LAYER>\\d+)");
-		static const boost::wregex play_exp			(L"PLAY (?<LAYER>\\d+)");
-		static const boost::wregex stop_exp			(L"STOP (?<LAYER>\\d+)");
-		static const boost::wregex next_exp			(L"NEXT (?<LAYER>\\d+)");
-		static const boost::wregex update_exp		(L"UPDATE (?<LAYER>\\d+) (?<DATA>.+)");
-		static const boost::wregex invoke_exp		(L"INVOKE (?<LAYER>\\d+) (?<LABEL>.+)");
-		static const boost::wregex description_exp	(L"INFO (?<LAYER>\\d+)");
-		static const boost::wregex info_exp			(L"INFO");
+		static const boost::wregex add_exp			(L"ADD (?<LAYER>\\d+) \"(?<FILENAME>[^\"]*)\" (?<PLAY_ON_LOAD>\\d)( (?<DATA>.*))?", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex remove_exp		(L"REMOVE (?<LAYER>\\d+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex play_exp			(L"PLAY (?<LAYER>\\d+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex stop_exp			(L"STOP (?<LAYER>\\d+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex next_exp			(L"NEXT (?<LAYER>\\d+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex update_exp		(L"UPDATE (?<LAYER>\\d+) (?<DATA>.+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex invoke_exp		(L"INVOKE (?<LAYER>\\d+) (?<LABEL>.+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex description_exp	(L"INFO (?<LAYER>\\d+)", boost::regex::perl|boost::regex::icase);
+		static const boost::wregex info_exp			(L"INFO", boost::regex::perl|boost::regex::icase);
 		
 		boost::wsmatch what;
 		if(boost::regex_match(str, what, add_exp))
-			return add(boost::lexical_cast<int>(what["LAYER"].str()), flash::find_template(env::template_folder() + what["FILENAME"].str()), boost::lexical_cast<bool>(what["PLAY_ON_LOAD"].str()), L"", what["DATA"].str()); 
+			return add(
+					boost::lexical_cast<int>(what["LAYER"].str()),
+					what["FILENAME"].str(),
+					boost::lexical_cast<bool>(what["PLAY_ON_LOAD"].str()),
+					L"",
+					what["DATA"].str());
 		else if(boost::regex_match(str, what, remove_exp))
-			return remove(boost::lexical_cast<int>(what["LAYER"].str())); 
+			return remove(boost::lexical_cast<int>(what["LAYER"].str()));
+		else if(boost::regex_match(str, what, play_exp))
+			return play(boost::lexical_cast<int>(what["LAYER"].str()));
 		else if(boost::regex_match(str, what, stop_exp))
-			return stop(boost::lexical_cast<int>(what["LAYER"].str()), 0); 
+			return stop(boost::lexical_cast<int>(what["LAYER"].str()), 0);
 		else if(boost::regex_match(str, what, next_exp))
-			return next(boost::lexical_cast<int>(what["LAYER"].str())); 
+			return next(boost::lexical_cast<int>(what["LAYER"].str()));
 		else if(boost::regex_match(str, what, update_exp))
-			return update(boost::lexical_cast<int>(what["LAYER"].str()), what["DATA"].str()); 
-		else if(boost::regex_match(str, what, next_exp))
-			return invoke(boost::lexical_cast<int>(what["LAYER"].str()), what["LABEL"].str()); 
-		else if(boost::regex_match(str, what, description_exp))
-			return description(boost::lexical_cast<int>(what["LAYER"].str())); 
+			return update(boost::lexical_cast<int>(what["LAYER"].str()), what["DATA"].str());
 		else if(boost::regex_match(str, what, invoke_exp))
+			return invoke(boost::lexical_cast<int>(what["LAYER"].str()), what["LABEL"].str());
+		else if(boost::regex_match(str, what, description_exp))
+			return description(boost::lexical_cast<int>(what["LAYER"].str()));
+		else if(boost::regex_match(str, what, info_exp))
 			return template_host_info(); 
 
 		return flash_producer_->call(str);
@@ -193,24 +200,39 @@ public:
 		return L"";
 	}
 
-	core::monitor::source& monitor_output()
+	core::monitor::subject& monitor_output()
 	{
 		return flash_producer_->monitor_output();
 	}
 };
-	
-safe_ptr<cg_producer> get_default_cg_producer(const safe_ptr<core::video_channel>& video_channel, int render_layer)
-{	
-	auto flash_producer = video_channel->stage()->foreground(render_layer).get();
+
+void with_default_cg_producer(
+		std::function<void (safe_ptr<cg_producer>)> command,
+		const safe_ptr<core::video_channel>& video_channel,
+		bool expect_existing,
+		int layer_index)
+{
+	auto flash_producer = video_channel->stage()->foreground(layer_index).get();
+	bool was_created = false;
 
 	try
 	{
 		if(flash_producer->print().find(L"flash[") == std::string::npos) // UGLY hack
 		{
-			flash_producer = flash::create_producer(video_channel->mixer(), boost::assign::list_of<std::wstring>());	
-			video_channel->stage()->load(render_layer, flash_producer); 
-			video_channel->stage()->play(render_layer);
+			if (expect_existing)
+				BOOST_THROW_EXCEPTION(caspar_exception() << msg_info(
+						"No flash producer on layer "
+						+ boost::lexical_cast<std::string>(layer_index)));
+
+			flash_producer = flash::create_producer(video_channel->mixer()->get_frame_factory(layer_index), boost::assign::list_of<std::wstring>());
 		}
+
+		if (expect_existing && flash_producer->call(L"?").get() == L"0")
+			BOOST_THROW_EXCEPTION(caspar_exception() << msg_info(
+					"No flash player on layer "
+					+ boost::lexical_cast<std::string>(layer_index)));
+
+		was_created = true;
 	}
 	catch(...)
 	{
@@ -218,7 +240,29 @@ safe_ptr<cg_producer> get_default_cg_producer(const safe_ptr<core::video_channel
 		throw;
 	}
 
-	return make_safe<cg_producer>(flash_producer);
+	command(make_safe<cg_producer>(flash_producer));
+
+	if (was_created)
+	{
+		video_channel->stage()->load(layer_index, flash_producer); 
+		video_channel->stage()->play(layer_index);
+	}
+}
+	
+safe_ptr<cg_producer> get_default_cg_producer(
+		const safe_ptr<core::video_channel>& video_channel,
+		bool expect_existing,
+		int render_layer)
+{	
+	std::shared_ptr<cg_producer> producer;
+
+	with_default_cg_producer(
+			[&producer](safe_ptr<cg_producer> p)
+			{
+				producer = p;
+			}, video_channel, expect_existing, render_layer);
+
+	return make_safe_ptr(producer);
 }
 
 safe_ptr<core::frame_producer> create_cg_producer_and_autoplay_file(
@@ -229,9 +273,9 @@ safe_ptr<core::frame_producer> create_cg_producer_and_autoplay_file(
 	if(!boost::filesystem::exists(filename))
 		return core::frame_producer::empty();
 		
-	boost::filesystem2::wpath path(filename);
-	path = boost::filesystem2::complete(path);
-	auto filename2 = path.file_string();
+	boost::filesystem::path path(filename);
+	path = boost::filesystem::complete(path);
+	auto filename2 = path.wstring();
 
 	auto flash_producer = flash::create_producer(frame_factory, boost::assign::list_of<std::wstring>());	
 	auto producer = make_safe<cg_producer>(flash_producer);
@@ -261,7 +305,7 @@ cg_producer::cg_producer(const safe_ptr<core::frame_producer>& frame_producer) :
 cg_producer::cg_producer(cg_producer&& other) : impl_(std::move(other.impl_)){}
 safe_ptr<core::basic_frame> cg_producer::receive(int hints){return impl_->receive(hints);}
 safe_ptr<core::basic_frame> cg_producer::last_frame() const{return impl_->last_frame();}
-void cg_producer::add(int layer, const std::wstring& template_name,  bool play_on_load, const std::wstring& startFromLabel, const std::wstring& data){impl_->add(layer, template_name, play_on_load, startFromLabel, data);}
+void cg_producer::add(int layer, const std::wstring& template_name,  bool play_on_load, const std::wstring& startFromLabel, const std::wstring& data){impl_->add(layer, template_name, play_on_load, startFromLabel, data).wait();}
 void cg_producer::remove(int layer){impl_->remove(layer);}
 void cg_producer::play(int layer){impl_->play(layer);}
 void cg_producer::stop(int layer, unsigned int mix_out_duration){impl_->stop(layer, mix_out_duration);}
@@ -273,5 +317,5 @@ std::wstring cg_producer::invoke(int layer, const std::wstring& label){return im
 std::wstring cg_producer::description(int layer){return impl_->timed_description(layer);}
 std::wstring cg_producer::template_host_info(){return impl_->timed_template_host_info();}
 boost::property_tree::wptree cg_producer::info() const{return impl_->info();}
-core::monitor::source& cg_producer::monitor_output(){return impl_->monitor_output();}
+core::monitor::subject& cg_producer::monitor_output(){return impl_->monitor_output();}
 }}

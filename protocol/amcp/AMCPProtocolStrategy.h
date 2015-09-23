@@ -24,6 +24,7 @@
 #include "../util/protocolstrategy.h"
 #include <core/video_channel.h>
 #include <core/thumbnail_generator.h>
+#include <core/producer/media_info/media_info_repository.h>
 
 #include "AMCPCommand.h"
 #include "AMCPCommandQueue.h"
@@ -49,9 +50,12 @@ class AMCPProtocolStrategy : public IO::IProtocolStrategy, boost::noncopyable
 
 public:
 	AMCPProtocolStrategy(
+			const std::wstring& name,
 			const std::vector<safe_ptr<core::video_channel>>& channels,
 			const std::shared_ptr<core::thumbnail_generator>& thumb_gen,
-			boost::promise<bool>& shutdown_server_now);
+			const safe_ptr<core::media_info_repository>& media_info_repo,
+			const safe_ptr<core::ogl_device>& ogl_device,
+			const std::function<void (bool)>& shutdown_server_now);
 	virtual ~AMCPProtocolStrategy();
 
 	virtual void Parse(const TCHAR* pData, int charCount, IO::ClientInfoPtr pClientInfo);
@@ -72,7 +76,9 @@ private:
 
 	std::vector<safe_ptr<core::video_channel>> channels_;
 	std::shared_ptr<core::thumbnail_generator> thumb_gen_;
-	boost::promise<bool>& shutdown_server_now_;
+	safe_ptr<core::media_info_repository> media_info_repo_;
+	safe_ptr<core::ogl_device> ogl_;
+	std::function<void (bool)> shutdown_server_now_;
 	std::vector<AMCPCommandQueuePtr> commandQueues_;
 	static const std::wstring MessageDelimiter;
 };

@@ -25,6 +25,7 @@
 
 #include "../interop/DeckLinkAPI_h.h"
 #include "../util/util.h"
+#include "../util/decklink_allocator.h"
 
 #include "../../ffmpeg/producer/filter/filter.h"
 #include "../../ffmpeg/producer/util/util.h"
@@ -34,6 +35,7 @@
 #include <common/concurrency/com_context.h>
 #include <common/diagnostics/graph.h>
 #include <common/exception/exceptions.h>
+#include <common/exception/win32_exception.h>
 #include <common/log/log.h>
 #include <common/memory/memclr.h>
 
@@ -86,9 +88,10 @@ class decklink_producer : boost::noncopyable, public IDeckLinkInputCallback
 	boost::timer												tick_timer_;
 	boost::timer												frame_timer_;
 
+	std::unique_ptr<thread_safe_decklink_allocator>				allocator_;
 	CComPtr<IDeckLink>											decklink_;
 	CComQIPtr<IDeckLinkInput>									input_;
-	CComQIPtr<IDeckLinkAttributes >								attributes_;
+	CComQIPtr<IDeckLinkAttributes>								attributes_;
 	
 	const std::wstring											model_name_;
 	const size_t												device_index_;
@@ -124,7 +127,7 @@ public:
 		, filter_(filter)
 		, format_desc_(format_desc)
 		, audio_cadence_(format_desc.audio_cadence)
-		, muxer_(format_desc.fps, frame_factory, false, audio_channel_layout, filter)
+		, muxer_(format_desc.fps, frame_factory, false, audio_channel_layout, filter, ffmpeg::filter::is_deinterlacing(filter))
 		, sync_buffer_(format_desc.audio_cadence.size())
 		, frame_factory_(frame_factory)
 		, audio_channel_layout_(audio_channel_layout)
@@ -148,7 +151,14 @@ public:
 		diagnostics::register_graph(graph_);
 		
 		auto display_mode = get_display_mode(input_, format_desc_.format, bmdFormat8BitYUV, bmdVideoInputFlagDefault);
-				
+		
+		allocator_.reset(new thread_safe_decklink_allocator(print()));
+
+		if(FAILED(input_->SetVideoInputFrameMemoryAllocator(allocator_.get()))) 
+			BOOST_THROW_EXCEPTION(caspar_exception()
+									<< msg_info(narrow(print()) + " Could not enable use of custom allocator.")
+									<< boost::errinfo_api_function("SetVideoInputFrameMemoryAllocator"));
+
 		// NOTE: bmdFormat8BitARGB is currently not supported by any decklink card. (2011-05-08)
 		if(FAILED(input_->EnableVideoInput(display_mode, bmdFormat8BitYUV, bmdVideoInputFlagDefault))) 
 			BOOST_THROW_EXCEPTION(caspar_exception() 
@@ -191,6 +201,7 @@ public:
 
 	virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame* video, IDeckLinkAudioInputPacket* audio)
 	{	
+		win32_exception::ensure_handler_installed_for_thread("decklink-VideoInputFrameArrived");
 		if(!video)
 			return S_OK;
 
@@ -207,8 +218,8 @@ public:
 			if(FAILED(video->GetBytes(&bytes)) || !bytes)
 				return S_OK;
 			
-			safe_ptr<AVFrame> av_frame(avcodec_alloc_frame(), av_free);	
-			avcodec_get_frame_defaults(av_frame.get());
+			safe_ptr<AVFrame> av_frame(av_frame_alloc(), [](AVFrame* ptr) { av_frame_free(&ptr); });
+			//avcodec_get_frame_defaults(av_frame.get());
 						
 			av_frame->data[0]			= reinterpret_cast<uint8_t*>(bytes);
 			av_frame->linesize[0]		= video->GetRowBytes();			
@@ -217,6 +228,7 @@ public:
 			av_frame->height			= video->GetHeight();
 			av_frame->interlaced_frame	= format_desc_.field_mode != core::field_mode::progressive;
 			av_frame->top_field_first	= format_desc_.field_mode == core::field_mode::upper ? 1 : 0;
+			av_frame->key_frame = 1;
 				
 			std::shared_ptr<core::audio_buffer> audio_buffer;
 
@@ -284,7 +296,7 @@ public:
 
 			graph_->set_value("frame-time", frame_timer_.elapsed()*format_desc_.fps*0.5);
 
-			graph_->set_value("output-buffer", static_cast<float>(frame_buffer_.size())/static_cast<float>(frame_buffer_.capacity()));	
+			graph_->set_value("output-buffer", static_cast<float>(frame_buffer_.size())/static_cast<float>(frame_buffer_.capacity()));
 		}
 		catch(...)
 		{
@@ -314,7 +326,7 @@ public:
 		return model_name_ + L" [" + boost::lexical_cast<std::wstring>(device_index_) + L"|" + format_desc_.name + L"]";
 	}
 
-	core::monitor::source& monitor_output()
+	core::monitor::subject& monitor_output()
 	{
 		return monitor_subject_;
 	}
@@ -375,7 +387,7 @@ public:
 		return info;
 	}
 
-	core::monitor::source& monitor_output()
+	core::monitor::subject& monitor_output()
 	{
 		return context_->monitor_output();
 	}

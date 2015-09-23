@@ -31,11 +31,12 @@ namespace caspar { namespace core {
 class ogl_device;
 class read_frame;
 struct video_format_desc;
+struct media_info_repository;
 
 typedef std::function<void (
 		const safe_ptr<read_frame>& frame,
 		const video_format_desc& format_desc,
-		const boost::filesystem::wpath& output_file,
+		const boost::filesystem::path& output_file,
 		int width,
 		int height)> thumbnail_creator;
 
@@ -44,14 +45,16 @@ class thumbnail_generator : boost::noncopyable
 public:
 	thumbnail_generator(
 			filesystem_monitor_factory& monitor_factory,
-			const boost::filesystem::wpath& media_path,
-			const boost::filesystem::wpath& thumbnails_path,
+			const boost::filesystem::path& media_path,
+			const boost::filesystem::path& thumbnails_path,
 			int width,
 			int height,
 			const video_format_desc& render_video_mode,
 			const safe_ptr<ogl_device>& ogl,
 			int generate_delay_millis,
-			const thumbnail_creator& thumbnail_creator);
+			const thumbnail_creator& thumbnail_creator,
+			safe_ptr<media_info_repository> media_info_repo,
+			bool mipmap);
 	~thumbnail_generator();
 	void generate(const std::wstring& media_file);
 	void generate_all();

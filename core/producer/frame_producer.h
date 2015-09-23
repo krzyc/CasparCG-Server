@@ -79,7 +79,7 @@ public:
 
 	static const safe_ptr<frame_producer>& empty(); // nothrow
 
-	virtual monitor::source& monitor_output() = 0;
+	virtual monitor::subject& monitor_output() = 0;
 };
 
 safe_ptr<basic_frame> receive_and_follow(safe_ptr<frame_producer>& producer, int hints);
@@ -92,5 +92,6 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<frame_factory>&, c
 safe_ptr<core::frame_producer> create_producer_destroy_proxy(safe_ptr<core::frame_producer> producer);
 safe_ptr<core::frame_producer> create_producer_print_proxy(safe_ptr<core::frame_producer> producer);
 safe_ptr<core::frame_producer> create_thumbnail_producer(const safe_ptr<frame_factory>& factory, const std::wstring& media_file);
+void destroy_producers_synchronously();
 
 }}

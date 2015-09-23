@@ -163,14 +163,16 @@ core::pixel_format_desc get_pixel_format_desc(PixelFormat pix_fmt, size_t width,
 
 int make_alpha_format(int format)
 {
-	switch(get_pixel_format(static_cast<PixelFormat>(format)))
-	{
-	case core::pixel_format::ycbcr:
-	case core::pixel_format::ycbcra:
-		return CASPAR_PIX_FMT_LUMA;
-	default:
-		return format;
-	}
+	return format;
+
+	//switch(get_pixel_format(static_cast<PixelFormat>(format)))
+	//{
+	//case core::pixel_format::ycbcr:
+	//case core::pixel_format::ycbcra:
+	//	return CASPAR_PIX_FMT_LUMA;
+	//default:
+	//	return format;
+	//}
 }
 
 safe_ptr<core::write_frame> make_write_frame(const void* tag, const safe_ptr<AVFrame>& decoded_frame, const safe_ptr<core::frame_factory>& frame_factory, int hints, const core::channel_layout& audio_channel_layout)
@@ -240,7 +242,7 @@ safe_ptr<core::write_frame> make_write_frame(const void* tag, const safe_ptr<AVF
 		if(target_pix_fmt == PIX_FMT_BGRA)
 		{
 			auto size = avpicture_fill(reinterpret_cast<AVPicture*>(av_frame.get()), write->image_data().begin(), PIX_FMT_BGRA, width, height);
-			CASPAR_VERIFY(size == write->image_data().size()); 
+			CASPAR_VERIFY(size == static_cast<int>(write->image_data().size()));
 		}
 		else
 		{
@@ -273,7 +275,7 @@ safe_ptr<core::write_frame> make_write_frame(const void* tag, const safe_ptr<AVF
 			CASPAR_ASSERT(decoded);
 			CASPAR_ASSERT(write->image_data(n).begin());
 
-			if(decoded_linesize != static_cast<int>(plane.width))
+			if(decoded_linesize != static_cast<int>(plane.linesize))
 			{
 				// Copy line by line since ffmpeg sometimes pads each line.
 				tbb::parallel_for<size_t>(0, desc.planes[n].height, [&](size_t y)
@@ -336,10 +338,18 @@ double read_fps(AVFormatContext& context, double fail_value)
 	{
 		const auto video_context = context.streams[video_index]->codec;
 		const auto video_stream  = context.streams[video_index];
-						
+					
+		auto frame_rate_time_base = video_stream->avg_frame_rate;
+		std::swap(frame_rate_time_base.num, frame_rate_time_base.den);
+ 
+		if(is_sane_fps(frame_rate_time_base))
+		{
+			return static_cast<double>(frame_rate_time_base.den) / static_cast<double>(frame_rate_time_base.num);
+		}
+
 		AVRational time_base = video_context->time_base;
 
-		if(boost::filesystem2::path(context.filename).extension() == ".flv")
+		if(boost::filesystem::path(context.filename).extension().string() == ".flv")
 		{
 			try
 			{
@@ -427,7 +437,7 @@ bool is_valid_file(const std::wstring filename, const std::vector<std::wstring>&
 {
 	static std::vector<std::wstring> valid_exts = boost::assign::list_of(L".m2t")(L".mov")(L".mp4")(L".dv")(L".flv")(L".mpg")(L".wav")(L".mp3")(L".dnxhd")(L".h264")(L".prores");
 
-	auto ext = boost::to_lower_copy(boost::filesystem::wpath(filename).extension());
+	auto ext = boost::to_lower_copy(boost::filesystem::path(filename).extension().wstring());
 		
 	if(std::find(invalid_exts.begin(), invalid_exts.end(), ext) != invalid_exts.end())
 		return false;	
@@ -465,26 +475,54 @@ bool is_valid_file(const std::wstring filename)
 	return is_valid_file(filename, invalid_exts);
 }
 
+bool try_get_duration(const std::wstring filename, std::int64_t& duration, boost::rational<std::int64_t>& time_base)
+{
+	AVFormatContext* weak_context = nullptr;
+	if(avformat_open_input(&weak_context, narrow(filename).c_str(), nullptr, nullptr) < 0)
+		return false;
+
+	std::shared_ptr<AVFormatContext> context(weak_context, av_close_input_file);
+	
+	context->probesize = context->probesize / 10;
+	context->max_analyze_duration = context->probesize / 10;
+
+	if(avformat_find_stream_info(context.get(), nullptr) < 0)
+		return false;
+
+	const auto fps = read_fps(*context, 1.0);
+		
+	const auto rational_fps = boost::rational<std::int64_t>(static_cast<int>(fps * AV_TIME_BASE), AV_TIME_BASE);
+	
+	duration = boost::rational_cast<std::int64_t>(context->duration * rational_fps / AV_TIME_BASE);
+
+	if (rational_fps == 0)
+		return false;
+
+	time_base = 1/rational_fps;
+
+	return true;
+}
+
 std::wstring probe_stem(const std::wstring stem, const std::vector<std::wstring>& invalid_exts)
 {
-	auto stem2 = boost::filesystem2::wpath(stem);
+	auto stem2 = boost::filesystem::path(stem);
 	auto dir = stem2.parent_path();
-	for(auto it = boost::filesystem2::wdirectory_iterator(dir); it != boost::filesystem2::wdirectory_iterator(); ++it)
+	for(auto it = boost::filesystem::directory_iterator(dir); it != boost::filesystem::directory_iterator(); ++it)
 	{
-		if(boost::iequals(it->path().stem(), stem2.filename()) && is_valid_file(it->path().file_string(), invalid_exts))
-			return it->path().file_string();
+		if(boost::iequals(it->path().stem().wstring(), stem2.filename().wstring()) && is_valid_file(it->path().wstring(), invalid_exts))
+			return it->path().wstring();
 	}
 	return L"";
 }
 
 std::wstring probe_stem(const std::wstring stem)
 {
-	auto stem2 = boost::filesystem2::wpath(stem);
+	auto stem2 = boost::filesystem::path(stem);
 	auto dir = stem2.parent_path();
-	for(auto it = boost::filesystem2::wdirectory_iterator(dir); it != boost::filesystem2::wdirectory_iterator(); ++it)
+	for(auto it = boost::filesystem::directory_iterator(dir); it != boost::filesystem::directory_iterator(); ++it)
 	{
-		if(boost::iequals(it->path().stem(), stem2.filename()) && is_valid_file(it->path().file_string()))
-			return it->path().file_string();
+		if(boost::iequals(it->path().stem().wstring(), stem2.filename().wstring()) && is_valid_file(it->path().wstring()))
+			return it->path().wstring();
 	}
 	return L"";
 }

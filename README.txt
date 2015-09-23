@@ -1,13 +1,12 @@
-CasparCG Server 2.0.4 Beta 1
+CasparCG Server 2.0.7 Stable
 ============================
 
 Thank you for your interest in CasparCG Server, a professional software used to
 play out and record professional graphics, audio and video to multiple outputs.
 It has been in 24/7 broadcast production since 2006.
 
-This release is NOT considered tested and stable, and it is NOT intended for use
-in professional production. Please use CasparCG Server 2.0.3 if you need 
-proven stability!
+This release is considered tested and stable, and is intended for use in
+professional production.
 
 More information is available at http://casparcg.com/
 
@@ -15,36 +14,29 @@ More information is available at http://casparcg.com/
 SYSTEM REQUIREMENTS
 -------------------
 
-1. Intel processor capable of using SSSE3 instructions. Please refer to
+1. Intel processor capable of using SSSE3 instructions. 
+   Please refer to
    http://en.wikipedia.org/wiki/SSSE3 for a complete list.
-   While AMD processors should work, CasparCG Server has only been tested on
+   While AMD processors probably work, CasparCG Server has only been tested on
    Intel processors.
 
-2. We recommend Windows 7 (64-bit,) but this software has also been used
-   successfully on Windows 7 (32-bit) and Windows XP SP2 (32-bit only.)
-   Using CasparCG Server on Windows 8 and Windows Vista is untested and
-   is not recommended!
+2. Windows 7 (64-bit) strongly recommended.
+   CasparCG Server has also been used successfully on Windows 7 (32-bit) 
+   and Windows XP SP2 (32-bit only.)
+   NOT SUPPORTED: Windows 8, Windows 2003 Server and Windows Vista.
 
-3. An NVIDIA graphics card (GPU) capable of OpenGL 3.0 or higher is strongly
-   recommended!
-   Please check your card's capabilities at:
-   http://en.wikipedia.org/wiki/Comparison_of_Nvidia_graphics_processing_units
-   Make sure that you have the latest drivers installed:
-   http://www.nvidia.com/Download/index.aspx?lang=en-us%20nVidia%20drivers
-
-   Experimental support for AMD/ATI cards has been added, but it has not been
-   fully tested.
-
-   Graphics cards from other manufacturers _may_ work but have not been tested!
+3. A graphics card (GPU) capable of OpenGL 3.0 is required.
+   We strongly recommend that you use a separate graphics card, and avoid
+   using the built-in GPU that exists in many CPUs, since your performance
+   will suffer.
 
 4. Microsoft Visual C++ 2010 Redistributable Package must be installed.
-   Free download at:
-   http://www.microsoft.com/download/en/details.aspx?id=5555
-
-5. You must have Flash Player 10.3 or later installed (an installer can be found
-   in the "Flash Player Installation" folder.)
-
-6. Make sure you turn off Windows' "Aero" theme and "ClearType" font smoothing
+   See link in the Installation section below.
+   
+5. Microsoft .NET Framework 4.0 or later must be installed.
+   See link in the Installation section below.
+   
+6. Windows' "Aero" theme and "ClearType" font smoothing must be disabled
    as they have been known to interfere with transparency in Flash templates,
    and can also cause problems with Vsync when outputting to computer screens.
 
@@ -57,21 +49,44 @@ INSTALLATION
 
 1. Check that your system meets the requirements above.
 
-2. Unzip and place the "CasparCG Server 2.0.4 Beta 1" folder anywhere you like.
+2. Unzip and place the "CasparCG Server" folder anywhere you like.
 
 3. Install "Microsoft Visual C++ 2010 Redistributable Package" from
    http://www.microsoft.com/download/en/details.aspx?id=5555
-
-4. Install "Flash Player 10.3.183.14" from the "Flash Player Installation"
-   folder.
+   
+4. Install "Microsoft .NET Framework" (version 4.0 or later) from
+   http://go.microsoft.com/fwlink/?LinkId=225702
 
 5. Make sure you turn off Windows' "Aero Theme" and "ClearType" font smoothing
    as they can interfere with CasparCG Server's OpenGL features!
 
-6. Start the "casparcg_server.exe" program and configure the settings.
 
-7. Connect to the Server from a client, such as the CasparCG Client 2.0.4
-   (available as a separate download.)
+INSTALLATION OF ADDITIONAL NON-GPL SOFTWARE
+-------------------------------------------
+
+- For Flash template support:
+
+  1. Uninstall any previous version of the Adobe Flash Player using this file:
+     http://download.macromedia.com/get/flashplayer/current/support/uninstall_flash_player.exe
+  2. Download and unpack
+     http://download.macromedia.com/pub/flashplayer/installers/archive/fp_11.8.800.94_archive.zip
+  3. Install Adobe Flash Player 11.8.800.94 from the unpacked archive:
+     fp_11.8.800.94_archive\11_8_r800_94\flashplayer11_8r800_94_winax.exe
+
+- For NewTek iVGA support, please download and install the following driver:
+  http://new.tk/NetworkSendRedist
+
+
+CONFIGURATION
+-------------
+
+1. Configure the server by editing the self documented casparcg.config file in a
+   text editor.
+
+2. Start the "casparcg.exe" program.
+
+3. Connect to the Server from a client software, such as the "CasparCG Client"
+   which is available as a separate download.
 
 
 DOCUMENTATION
@@ -86,8 +101,8 @@ Ask questions in the forum: http://casparcg.com/forum/
 LICENSING
 ---------
 
-CasparCG Client is distributed under the GNU General Public License GPLv3 or
-higher, see LICENSE.TXT for details.
+CasparCG is distributed under the GNU General Public License GPLv3 or
+higher, please see LICENSE.TXT for details.
 
 The included software is provided as-is by Sveriges Televison AB.
 More information is available at http://casparcg.com/

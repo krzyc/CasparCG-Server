@@ -130,13 +130,19 @@ class PauseCommand: public AMCPCommandBase<true, AddToQueue, 0>
 	bool DoExecute();
 };
 
+class ResumeCommand: public AMCPCommandBase<true, AddToQueue, 0>
+{
+	std::wstring print() const { return L"ResumeCommand";}
+	bool DoExecute();
+};
+
 class StopCommand : public AMCPCommandBase<true, AddToQueue, 0>
 {
 	std::wstring print() const { return L"StopCommand";}
 	bool DoExecute();
 };
 
-class ClearCommand : public AMCPCommandBase<true, ImmediatelyAndClear, 0>
+class ClearCommand : public AMCPCommandBase<true, AddToQueue, 0>
 {
 	std::wstring print() const { return L"ClearCommand";}
 	bool DoExecute();
@@ -241,6 +247,14 @@ class KillCommand : public AMCPCommandBase<false, AddToQueue, 0>
 {
 	std::wstring print() const { return L"KillCommand";}
 	bool DoExecute();
+};
+
+class GlCommand : public AMCPCommandBase<false, AddToQueue, 0>
+{
+	std::wstring print() const { return L"GlCommand";}
+	bool DoExecute();
+	bool DoExecuteInfo();
+	bool DoExecuteGc();
 };
 
 class RestartCommand : public AMCPCommandBase<false, AddToQueue, 0>

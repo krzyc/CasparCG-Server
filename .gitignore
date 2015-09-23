@@ -1,5 +1,6 @@
 # /
 /bin
+/build
 /ipch
 /tmp
 /casparcg.opensdf
@@ -38,17 +39,17 @@
 /modules/ffmpeg/tmp
 /modules/ffmpeg/ffmpeg.vcxproj.user
 
-# /modules/replay/
-/modules/replay/bin
-/modules/replay/tmp
-/modules/replay/ffmpeg.vcxproj.user
-
 # /modules/ffmpeg/producer/filter/scalable_yadif/
 
 # /modules/flash/
 /modules/flash/bin
 /modules/flash/tmp
 /modules/flash/flash.vcxproj.user
+
+# /modules/html/
+/modules/html/bin
+/modules/html/tmp
+/modules/html/html.vcxproj.user
 
 # /modules/image/
 /modules/image/bin
@@ -65,9 +66,10 @@
 /modules/ogl/tmp
 /modules/ogl/ogl.vcxproj.user
 
-# /modules/silverlight/
-/modules/silverlight/bin
-/modules/silverlight/tmp
+# /modules/replay/
+/modules/replay/bin
+/modules/replay/tmp
+/modules/replay/ffmpeg.vcxproj.user
 
 # /protocol/
 /protocol/bin
@@ -86,18 +88,7 @@
 /shell/thumbnails
 /shell/tmp
 
-# /dependencies/
-/dependencies/boost
-
-# /dependencies64/ for 2.1.0 branch
-/dependencies64/asmlib
-/dependencies64/bluefish
-/dependencies64/boost
-/dependencies64/ffmpeg
-/dependencies64/freeimage
-/dependencies64/glew
-/dependencies64/media_sdk
-/dependencies64/openal
-/dependencies64/sfml
-/dependencies64/tbb
-
+/modules/newtek/newtek.vcxproj.user
+/modules/newtek/bin
+/modules/newtek/tmp
+/dependencies/cef

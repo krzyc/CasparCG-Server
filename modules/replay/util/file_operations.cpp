@@ -95,14 +95,14 @@ namespace caspar { namespace replay {
 		CloseHandle(file_handle);
 	}
 
-	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode)
+	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode, int audio_channels)
 	{
 		mjpeg_file_header	header;
 		header.magick[0] = 'O';	// Set the "magick" four bytes
 		header.magick[1] = 'M';
 		header.magick[2] = 'A';
 		header.magick[3] = 'V';
-		header.version = 1;	    // Set the version number to 1, for V.1 of the index file format
+		header.version = 2;	    // Set the version number to 2, for V.2 of the index file format (extended)
 		header.width = format_desc->width;
 		header.height = format_desc->height;
 		header.fps = format_desc->fps;
@@ -111,6 +111,22 @@ namespace caspar { namespace replay {
 
 		DWORD written = 0;
 		WriteFile(outfile_idx, &header, sizeof(mjpeg_file_header), &written, NULL);
+
+		mjpeg_file_header_ex	header_ex;
+		header_ex.video_fourcc[0] = 'm'; // Set video fourcc
+		header_ex.video_fourcc[1] = 'j';
+		header_ex.video_fourcc[2] = 'p';
+		header_ex.video_fourcc[3] = 'g';
+
+		header_ex.audio_fourcc[0] = 'i';
+		header_ex.audio_fourcc[1] = 'n';
+		header_ex.audio_fourcc[2] = '3';
+		header_ex.audio_fourcc[3] = '2';
+
+		header_ex.audio_channels = audio_channels; // 2 for stereo
+
+		written = 0;
+		WriteFile(outfile_idx, &header_ex, sizeof(mjpeg_file_header_ex), &written, NULL);
 	}
 
 	int read_index_header(mjpeg_file_handle infile_idx, mjpeg_file_header** header)
@@ -122,6 +138,25 @@ namespace caspar { namespace replay {
 		//read = fread(*header, sizeof(mjpeg_file_header), 1, infile_idx.get());
 		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header), &read, NULL);
 		if (read != sizeof(mjpeg_file_header))
+		{
+			delete *header;
+			return 1;
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	int read_index_header_ex(mjpeg_file_handle infile_idx, mjpeg_file_header_ex** header)
+	{
+		*header = new mjpeg_file_header_ex();
+
+		DWORD read = 0;
+		
+		//read = fread(*header, sizeof(mjpeg_file_header), 1, infile_idx.get());
+		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header_ex), &read, NULL);
+		if (read != sizeof(mjpeg_file_header_ex))
 		{
 			delete *header;
 			return 1;
@@ -171,7 +206,7 @@ namespace caspar { namespace replay {
 			case FILE_BEGIN:
 			default:
 				//return _fseeki64_nolock(infile_idx.get(), frame * sizeof(long long) + sizeof(mjpeg_file_header), SEEK_SET);
-				position.QuadPart = frame * sizeof(long long) + sizeof(mjpeg_file_header);
+				position.QuadPart = frame * sizeof(long long) + sizeof(mjpeg_file_header) + sizeof(mjpeg_file_header_ex);
 				result = SetFilePointerEx(infile_idx, position, NULL, FILE_BEGIN);
 				break;
 		}
@@ -194,7 +229,7 @@ namespace caspar { namespace replay {
 		zero.QuadPart = 0;
 		LARGE_INTEGER position;
 		SetFilePointerEx(infile_idx, zero, &position, FILE_CURRENT);
-		return position.QuadPart;
+		return (position.QuadPart - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
 	}
 
 	long long tell_frame(mjpeg_file_handle infile)
@@ -389,8 +424,21 @@ namespace caspar { namespace replay {
 		longjmp(myerr->setjmp_buffer, 1);
 	} 
 
-	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image)
+	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image, size_t* audioSize, int32_t** audio)
 	{
+		size_t audioBufSize = 0;
+		DWORD read = 0;
+
+		ReadFile(infile, &audioBufSize, sizeof(size_t), &read, FALSE);
+		if (audioBufSize > 0)
+		{
+			read = 0;
+			(*audio) = new int32_t[audioBufSize];
+			ReadFile(infile, (*audio), audioBufSize, &read, FALSE);
+		}
+
+		(*audioSize) = audioBufSize;
+
 		struct jpeg_decompress_struct cinfo;
 
 		struct error_mgr jerr;
@@ -449,10 +497,14 @@ namespace caspar { namespace replay {
 	}
 
 	#pragma warning(disable:4267)
-	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling)
+	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling, const int32_t* audio_data, size_t audio_data_length)
 	{
-
 		long long start_position = tell_frame(outfile);
+
+		DWORD written = 0;
+		bool success = true;
+		success = WriteFile(outfile, &audio_data_length, sizeof(size_t), &written, NULL);
+		success = WriteFile(outfile, audio_data, audio_data_length, &written, NULL);
 
 		// JPEG Compression Parameters
 		struct jpeg_compress_struct cinfo;

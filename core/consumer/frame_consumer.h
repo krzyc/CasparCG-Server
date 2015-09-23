@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "../monitor/monitor.h"
+
 #include <common/memory/safe_ptr.h>
 
 #include <boost/noncopyable.hpp>
@@ -36,21 +38,24 @@ namespace caspar { namespace core {
 class read_frame;
 class parameters;
 struct video_format_desc;
+struct channel_layout;
 
 struct frame_consumer : boost::noncopyable
 {
 	virtual ~frame_consumer() {}
 	
 	virtual boost::unique_future<bool> send(const safe_ptr<read_frame>& frame) = 0;
-	virtual void initialize(const video_format_desc& format_desc, int channel_index) = 0;
+	virtual void initialize(const video_format_desc& format_desc, const channel_layout& audio_channel_layout, int channel_index) = 0;
 	virtual int64_t presentation_frame_age_millis() const = 0;
 	virtual std::wstring print() const = 0;
 	virtual boost::property_tree::wptree info() const = 0;
 	virtual bool has_synchronization_clock() const {return true;}
-	virtual size_t buffer_depth() const = 0;
+	virtual int buffer_depth() const = 0; // -1 to not participate in frame presentation synchronization
 	virtual int index() const = 0;
 
 	static const safe_ptr<frame_consumer>& empty();
+
+	virtual monitor::subject& monitor_output() = 0;
 };
 
 safe_ptr<frame_consumer> create_consumer_cadence_guard(const safe_ptr<frame_consumer>& consumer);

@@ -36,12 +36,20 @@ namespace caspar { namespace replay {
 
 	struct mjpeg_file_header {
 		char							magick[4]; // = 'OMAV'
-		uint8_t							version; // = 1 for version 1
+		uint8_t							version; // = 1 for version 1, or 2 for version 2
 		size_t							width;
 		size_t							height;
 		double							fps;
 		caspar::core::field_mode::type	field_mode;
 		boost::posix_time::ptime		begin_timecode;
+	};
+
+	// Extended header used in version 2
+	struct mjpeg_file_header_ex {
+		char							video_fourcc[4]; // = 'mjpg'
+		char							audio_fourcc[4]; // = 'in32'
+
+		int								audio_channels;
 	};
 
 	enum mjpeg_process_mode
@@ -61,14 +69,15 @@ namespace caspar { namespace replay {
 
 	mjpeg_file_handle safe_fopen(const wchar_t* filename, DWORD mode, DWORD shareFlags);
 	void safe_fclose(mjpeg_file_handle file_handle);
-	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode);
+	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode, int audio_channels);
 	void write_index(mjpeg_file_handle outfile_idx, long long offset);
-	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling);
+	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling, const int32_t* audio_data, size_t audio_data_length);
 	long long read_index(mjpeg_file_handle infile_idx);
 	long long tell_index(mjpeg_file_handle infile_idx);
 	int seek_index(mjpeg_file_handle infile_idx, long long frame, DWORD origin);
 	long long tell_frame(mjpeg_file_handle infile);
 	int read_index_header(mjpeg_file_handle infile_idx, mjpeg_file_header** header);
-	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image);
+	int read_index_header_ex(mjpeg_file_handle infile_idx, mjpeg_file_header_ex** header);
+	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image, size_t* audioSize, int32_t** audio);
 	int seek_frame(mjpeg_file_handle infile, long long offset, DWORD origin);
 }}
