@@ -74,6 +74,7 @@ namespace caspar { namespace replay {
 	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling, const int32_t* audio_data, size_t audio_data_length);
 	long long read_index(mjpeg_file_handle infile_idx);
 	long long tell_index(mjpeg_file_handle infile_idx);
+	long long length_index(mjpeg_file_handle infile_idx);
 	int seek_index(mjpeg_file_handle infile_idx, long long frame, DWORD origin);
 	long long tell_frame(mjpeg_file_handle infile);
 	int read_index_header(mjpeg_file_handle infile_idx, mjpeg_file_header** header);

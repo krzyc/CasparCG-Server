@@ -232,6 +232,13 @@ namespace caspar { namespace replay {
 		return (position.QuadPart - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
 	}
 
+	long long length_index(mjpeg_file_handle infile_idx)
+	{
+		LARGE_INTEGER size;
+		GetFileSizeEx(infile_idx, &size);
+		return (size.QuadPart - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
+	}
+
 	long long tell_frame(mjpeg_file_handle infile)
 	{
 		LARGE_INTEGER zero;

@@ -79,6 +79,7 @@ struct replay_producer : public core::frame_producer
 	const safe_ptr<core::frame_factory>			frame_factory_;
 	tbb::atomic<uint64_t>					framenum_;
 	tbb::atomic<uint64_t>					real_framenum_;
+	tbb::atomic<uint64_t>					real_last_framenum_;
 	tbb::atomic<uint64_t>					first_framenum_;
 	tbb::atomic<uint64_t>					last_framenum_;
 	tbb::atomic<uint64_t>					result_framenum_;
@@ -250,13 +251,6 @@ struct replay_producer : public core::frame_producer
 		return frame_;
 	}
 
-	long long length_index()
-	{
-		uintmax_t size = boost::filesystem::file_size(boost::filesystem::wpath(filename_).replace_extension(L".idx").string());
-		long long el_size = (size - sizeof(mjpeg_file_header)) / sizeof(long long);
-		return el_size;
-	}
-
 	virtual boost::unique_future<std::wstring> call(const std::wstring& param) override
 	{
 		boost::promise<std::wstring> promise;
@@ -316,9 +310,14 @@ struct replay_producer : public core::frame_producer
 			if(!what["VALUE"].str().empty())
 			{
 				long long last_frame = boost::lexical_cast<long long>(what["VALUE"].str());
-				last_framenum_ = first_framenum_ + last_frame;
-				if (interlaced_)
-					last_framenum_ = last_framenum_ * 2;
+				if (last_frame == 0)
+					last_framenum_ = 0;
+				else
+				{
+					last_framenum_ = first_framenum_ + last_frame;
+					if (interlaced_)
+						last_framenum_ = last_framenum_ * 2;
+				}
 			}
 			return L"";
 		}
@@ -328,6 +327,7 @@ struct replay_producer : public core::frame_producer
 
 	void seek(long long frame_pos, int sign)
 	{
+		real_last_framenum_ = length_index(in_idx_file_);
 		if (sign == 0)
 		{
 			framenum_ = frame_pos;
@@ -335,7 +335,7 @@ struct replay_producer : public core::frame_producer
 		}
 		else if (sign == -2)
 		{
-			framenum_ = length_index() - frame_pos - 4;
+			framenum_ = real_last_framenum_ - frame_pos - 4;
 			//seek_index(in_idx_file_, framenum_, FILE_BEGIN);
 		}
 		else
@@ -349,15 +349,15 @@ struct replay_producer : public core::frame_producer
 			{
 				framenum_ = 0;
 			}
-			/*if (((long long)framenum_ + (sign * frame_pos)) > length_index())
+			/*if (((long long)framenum_ + (sign * frame_pos)) > real_last_framenum_)
 			{
-				framenum_ = length_index() - 4;
+				framenum_ = real_last_framenum_ - 4;
 			}
 			seek_index(in_idx_file_, framenum_, FILE_BEGIN);*/
 		}
-		if (((long long)framenum_ /*+ (sign * frame_pos)*/) > length_index())
+		if ((framenum_ /*+ (sign * frame_pos)*/) > real_last_framenum_)
 		{
-			framenum_ = length_index() - 4;
+			framenum_ = real_last_framenum_ - 4;
 		}
 		seek_index(in_idx_file_, framenum_, FILE_BEGIN);
 		first_framenum_ = framenum_;
@@ -386,7 +386,9 @@ struct replay_producer : public core::frame_producer
 		monitor_subject_	<< core::monitor::message("/file/time")			% ((interlaced_ ? real_framenum_ / 2 : real_framenum_) / index_header_->fps) 
 																			% ((last_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1) / index_header_->fps)
 							<< core::monitor::message("/file/frame")		% static_cast<int32_t>((interlaced_ ? real_framenum_ / 2 : real_framenum_))
-																			% static_cast<int32_t>((last_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1))
+																			% static_cast<int32_t>(real_last_framenum_ / (interlaced_ ? 2 : 1))
+							<< core::monitor::message("/file/vframe")		% static_cast<int32_t>((real_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1))
+																			% static_cast<int32_t>(((last_framenum_ > 0 ? last_framenum_ : real_last_framenum_) - first_framenum_ ) / (interlaced_ ? 2 : 1))
 							<< core::monitor::message("/file/fps")			% index_header_->fps
 							<< core::monitor::message("/file/path")			% filename_
 							<< core::monitor::message("/file/speed")		% speed_;
@@ -398,6 +400,10 @@ struct replay_producer : public core::frame_producer
 		{
 			framenum_ -= (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
 			seek_index(in_idx_file_, -1 - (frame_multiplier_ > 1 ? frame_multiplier_ : 1), FILE_CURRENT);
+		}
+		else if (framenum_ >= (real_last_framenum_ = length_index(in_idx_file_)))
+		{
+			seek_index(in_idx_file_, -(frame_multiplier_ > 1 ? frame_multiplier_ : 1), FILE_CURRENT);
 		}
 		else
 		{
