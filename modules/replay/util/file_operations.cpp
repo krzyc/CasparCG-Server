@@ -529,8 +529,8 @@ namespace caspar { namespace replay {
 
 		cinfo.image_width = width;
 		cinfo.image_height = height;
-		cinfo.input_components = 3;
-		cinfo.in_color_space = JCS_RGB;
+		cinfo.input_components = 4;
+		cinfo.in_color_space = JCS_EXT_BGRX;
 
 		cinfo.max_v_samp_factor = 1;
 		cinfo.max_h_samp_factor = 1;
@@ -582,14 +582,14 @@ namespace caspar { namespace replay {
 		// JSAMPLEs per row in image_buffer
 		row_stride = width * 4;
 
-		uint8_t* buf = new uint8_t[row_stride];
+		//uint8_t* buf = new uint8_t[row_stride];
 
 		if (mode == PROGRESSIVE) {
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				bgra_to_rgb((uint8_t*)(image + (cinfo.next_scanline * row_stride)), buf, width);
+				//bgra_to_rgb((uint8_t*)(image + (cinfo.next_scanline * row_stride)), buf, width);
 
-				row_pointer[0] = (JSAMPROW)buf;
+				row_pointer[0] = (JSAMPROW)(image + (cinfo.next_scanline * row_stride)); //buf;
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -597,9 +597,9 @@ namespace caspar { namespace replay {
 		{
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2) * row_stride)), buf, width);
+				//bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2) * row_stride)), buf, width);
 
-				row_pointer[0] = (JSAMPROW)buf;
+				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2) * row_stride)); //buf;
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -607,9 +607,9 @@ namespace caspar { namespace replay {
 		{
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2 + 1) * row_stride)), buf, width);
+				//bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2 + 1) * row_stride)), buf, width);
 
-				row_pointer[0] = (JSAMPROW)buf;
+				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2 + 1) * row_stride)); //buf;
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -618,7 +618,7 @@ namespace caspar { namespace replay {
 				
 		jpeg_destroy_compress(&cinfo); 
 
-		delete buf;
+		//delete buf;
 
 		/* if (compress_time != NULL)
 		{
