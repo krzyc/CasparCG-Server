@@ -34,10 +34,45 @@
 #include <FreeImage.h>
 #include <setjmp.h>
 
+#include <jpeglib.h>
+
 namespace caspar { namespace replay {
+
+#ifndef JCS_EXTENSIONS
+#warning Building against non-turbo libjpeg
+#define JCS_EXT_RGB 6
+#endif
+
+int jpeg_version = -1;
+int jpeg_is_turbo = 0;
+
+void JPEGVersionError(j_common_ptr cinfo)
+{
+	jpeg_version = cinfo->err->msg_parm.i[0];
+}
 
 void init()
 {
+	jpeg_compress_struct cinfo;
+    jpeg_error_mgr error_mgr;
+    error_mgr.error_exit = &JPEGVersionError;
+    cinfo.err = &error_mgr;
+
+	jpeg_create_compress(&cinfo);
+	cinfo.input_components = 3;
+    jpeg_set_defaults(&cinfo);
+    cinfo.in_color_space = JCS_EXT_RGB;
+    jpeg_default_colorspace(&cinfo);
+    if (jpeg_version == -1)
+	{
+		jpeg_is_turbo = 1;
+		jpeg_destroy_compress(&cinfo);
+	}
+
+	jpeg_CreateCompress(&cinfo, -1, sizeof(cinfo)); // Pass version = -1 to always force error
+
+	CASPAR_LOG(info) << "[replay] Using libjpeg" << (jpeg_is_turbo == 1 ? "-turbo" : "") << " version " << jpeg_version << std::endl;
+
 	core::register_consumer_factory([](const core::parameters& params){return replay::create_consumer(params);});
 	core::register_producer_factory(create_producer);
 }
