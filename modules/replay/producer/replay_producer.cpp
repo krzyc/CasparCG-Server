@@ -230,21 +230,28 @@ struct replay_producer : public core::frame_producer
 
 #pragma warning(default:4244)
 	
-	caspar::safe_ptr<core::basic_frame> make_frame(uint8_t* frame_data, size_t size, size_t width, size_t height, bool drop_first_line)
+	caspar::safe_ptr<core::basic_frame> make_frame(uint8_t* frame_data, size_t size, size_t width, size_t height, bool drop_first_line,
+		const int32_t* audio_data = 0, size_t audio_data_length = 0)
 	{
 		core::pixel_format_desc desc;
-		desc.pix_fmt = core::pixel_format::bgra;
-		desc.planes.push_back(core::pixel_format_desc::plane(width, height, 4));
-		auto frame = frame_factory_->create_frame(this, desc);
+		desc.pix_fmt = core::pixel_format::rgb;
+		desc.planes.push_back(core::pixel_format_desc::plane(width, height, 3));
+		auto frame = frame_factory_->create_frame(this, desc, caspar::core::channel_layout::stereo());
 		if (!drop_first_line)
 		{
 			std::copy_n(frame_data, size, frame->image_data().begin());
 		}
 		else
 		{
-			size_t line = width * 4;
+			size_t line = width * 3;
 			std::copy_n(frame_data, size - line, frame->image_data().begin() + line);
 		}
+
+		/*if (audio_data_length > 0)
+		{
+			frame->audio_data().reserve(audio_data_length);
+			std::copy_n(audio_data, audio_data_length, frame->audio_data().begin());
+		}*/
 
 		frame->commit();
 		frame_ = std::move(frame);
@@ -434,18 +441,18 @@ struct replay_producer : public core::frame_producer
 	{
 		if (index_header_->field_mode == caspar::core::field_mode::lower)
 		{
-			interlace_fields(field2, field1, dst, index_header_->width, index_header_->height, 4);
+			interlace_fields(field2, field1, dst, index_header_->width, index_header_->height, 3);
 		}
 		else
 		{
-			interlace_fields(field1, field2, dst, index_header_->width, index_header_->height, 4);
+			interlace_fields(field1, field2, dst, index_header_->width, index_header_->height, 3);
 		}
 	}
 
 #pragma warning(disable:4244)
 	bool slow_motion_playback(uint8_t* result)
 	{
-		size_t frame_size = index_header_->width * index_header_->height * 4;
+		size_t frame_size = index_header_->width * index_header_->height * 3;
 		int filled = 0;
 		uint8_t* buffer1 = new uint8_t[frame_size];
 		uint8_t* buffer2 = new uint8_t[frame_size];
@@ -455,7 +462,7 @@ struct replay_producer : public core::frame_producer
 		if (leftovers_ != NULL)
 		{
 			// result is in buffer2
-			blend_images(leftovers_, buffer1, buffer2, index_header_->width, index_header_->height, 4, 64);
+			blend_images(leftovers_, buffer1, buffer2, index_header_->width, index_header_->height, 3, 64);
 				
 			filled += leftovers_duration_;
 			if (filled > 64)
@@ -499,10 +506,10 @@ struct replay_producer : public core::frame_producer
 			// Interpolate the field to a full frame if this is a field-based mode
 			if (interlaced_)
 			{
-				field_double(field, buffer1, index_header_->width, index_header_->height, 4);
+				field_double(field, buffer1, index_header_->width, index_header_->height, 3);
 				delete field;
 				field = new uint8_t[frame_size];
-				int drop_first_line = (framenum_ % 2 == 0 ? index_header_->width * 4 : 0);
+				int drop_first_line = (framenum_ % 2 == 0 ? index_header_->width * 3 : 0);
 				std::copy_n(buffer1, frame_size - drop_first_line, field + drop_first_line);
 			}
 
@@ -515,7 +522,7 @@ struct replay_producer : public core::frame_producer
 			{
 				level = (uint8_t)(((frame_duration + filled) <= 64 ? frame_duration : 64 - filled));
 			}
-			blend_images(field, buffer2, buffer1, index_header_->width, index_header_->height, 4, level);
+			blend_images(field, buffer2, buffer1, index_header_->width, index_header_->height, 3, level);
 
 			if (leftovers_ != NULL)
 				delete leftovers_;
@@ -574,7 +581,7 @@ struct replay_producer : public core::frame_producer
 		// IF trickplay is possible 0 - 1.0 || 1.0 - 2.0 || 2.0 - 3.0
 		else if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 2.0f)) || ((abs_speed_ > 2.0f) && (abs_speed_ < 3.0f)))
 		{
-			size_t frame_size = index_header_->width * index_header_->height * 4;
+			size_t frame_size = index_header_->width * index_header_->height * 3;
 			uint8_t* field1 = new uint8_t[frame_size];
 			uint8_t* field2 = NULL;
 			uint8_t* full_frame = NULL;
@@ -610,7 +617,7 @@ struct replay_producer : public core::frame_producer
 				}
 				else
 				{
-					interlace_frames(field1, field2, full_frame, index_header_->width, index_header_->height, 4);
+					interlace_frames(field1, field2, full_frame, index_header_->width, index_header_->height, 3);
 					make_frame(full_frame, frame_size, index_header_->width, index_header_->height, false);
 
 					delete field1;
@@ -648,6 +655,7 @@ struct replay_producer : public core::frame_producer
 		mmx_uint8_t* full_frame = NULL;
 		int32_t* audio1 = NULL;
 		int32_t* audio2 = NULL;
+		int32_t* audio = NULL;
 		size_t field1_width;
 		size_t field1_height;
 		size_t audio1_size;
@@ -656,7 +664,7 @@ struct replay_producer : public core::frame_producer
 
 		if (!interlaced_)
 		{
-			make_frame(field1, field1_size, index_header_->width, index_header_->height, false);
+			make_frame(field1, field1_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
 
 			delete field1;
 
@@ -667,7 +675,7 @@ struct replay_producer : public core::frame_producer
 		{
 			mmx_uint8_t* full_frame = new mmx_uint8_t[field1_size * 2];
 
-			field_double(field1, full_frame, index_header_->width, index_header_->height, 4);
+			field_double(field1, full_frame, index_header_->width, index_header_->height, 3);
 			make_frame(full_frame, field1_size * 2, index_header_->width, index_header_->height, false);
 
 			delete field1;
@@ -684,11 +692,15 @@ struct replay_producer : public core::frame_producer
 
 		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 
+		audio = new int32_t[audio1_size + audio2_size];
+		std::copy_n(audio1, audio1_size, audio);
+		std::copy_n(audio2, audio2_size, audio + audio1_size);
+
 		full_frame = new mmx_uint8_t[field1_size + field2_size];
 
 		proper_interlace(field1, field2, full_frame);
 		
-		make_frame(full_frame, field1_size + field2_size, index_header_->width, index_header_->height, false);
+		make_frame(full_frame, field1_size + field2_size, index_header_->width, index_header_->height, false, audio, audio1_size + audio2_size);
 
 		if (field1 != NULL)
 			delete field1;

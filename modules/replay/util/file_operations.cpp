@@ -450,9 +450,8 @@ namespace caspar { namespace replay {
 
 		struct error_mgr jerr;
 
-		JSAMPARRAY buffer;
+		JSAMPROW row_pointer[1];
 		int row_stride;
-		int rgba_stride;
 
 		cinfo.err = jpeg_std_error(&jerr.pub);
 		cinfo.err = jpeg_std_error(&jerr.pub);
@@ -476,31 +475,23 @@ namespace caspar { namespace replay {
 
 		(void) jpeg_start_decompress(&cinfo);
 
-		row_stride = cinfo.output_width * cinfo.output_components;
-		rgba_stride = cinfo.output_width * 4;
+		row_stride = cinfo.output_width * 3;
 
 		(*width) = cinfo.output_width;
 		(*height) = cinfo.output_height;
-		(*image) = new uint8_t[(*width) * (*height) * 4];
-
-		buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1); 
+		(*image) = new uint8_t[(*width) * (*height) * 3];
 
 		while (cinfo.output_scanline < cinfo.output_height)
 		{
-			/* jpeg_read_scanlines expects an array of pointers to scanlines.
-			* Here the array is only one element long, but you could ask for
-			* more than one scanline at a time if that's more convenient.
-			*/
-			(void) jpeg_read_scanlines(&cinfo, buffer, 1);
-			/* Assume put_scanline_someplace wants a pointer and sample count. */;
-			rgb_to_bgra((uint8_t*)(buffer[0]), (uint8_t*)((*image) + ((cinfo.output_scanline - 1) * rgba_stride)), cinfo.output_width);
+			row_pointer[0] = (JSAMPROW)((*image) + (cinfo.output_scanline * row_stride));
+			(void) jpeg_read_scanlines(&cinfo, row_pointer, 1);
 		} 
 
 		(void) jpeg_finish_decompress(&cinfo);
 
 		jpeg_destroy_decompress(&cinfo);
 
-		return ((*width) * (*height) * 4);
+		return ((*width) * (*height) * 3);
 	}
 
 	#pragma warning(disable:4267)
@@ -582,14 +573,10 @@ namespace caspar { namespace replay {
 		// JSAMPLEs per row in image_buffer
 		row_stride = width * 4;
 
-		//uint8_t* buf = new uint8_t[row_stride];
-
 		if (mode == PROGRESSIVE) {
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				//bgra_to_rgb((uint8_t*)(image + (cinfo.next_scanline * row_stride)), buf, width);
-
-				row_pointer[0] = (JSAMPROW)(image + (cinfo.next_scanline * row_stride)); //buf;
+				row_pointer[0] = (JSAMPROW)(image + (cinfo.next_scanline * row_stride));
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -597,9 +584,7 @@ namespace caspar { namespace replay {
 		{
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				//bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2) * row_stride)), buf, width);
-
-				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2) * row_stride)); //buf;
+				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2) * row_stride));
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -607,9 +592,7 @@ namespace caspar { namespace replay {
 		{
 			while (cinfo.next_scanline < cinfo.image_height)
 			{
-				//bgra_to_rgb((uint8_t*)(image + ((cinfo.next_scanline * 2 + 1) * row_stride)), buf, width);
-
-				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2 + 1) * row_stride)); //buf;
+				row_pointer[0] = (JSAMPROW)(image + ((cinfo.next_scanline * 2 + 1) * row_stride));
 				(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
 			}
 		}
@@ -617,8 +600,6 @@ namespace caspar { namespace replay {
 		jpeg_finish_compress(&cinfo);
 				
 		jpeg_destroy_compress(&cinfo); 
-
-		//delete buf;
 
 		/* if (compress_time != NULL)
 		{
