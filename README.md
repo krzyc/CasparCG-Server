@@ -114,29 +114,29 @@ Will make the playback go backwards at 3/4 of normal speed
 	
 Will pause the playback (is the same as setting speed to 0)
 
+	call 2 pause
+
 You can enable or disable audio:
+
+Will enable audio
 
 	call 2 audio 1
 	
-Will enable audio
+Will disable audio
 
 	call 2 audio 0
-	
-Will disable audio
 
 AMCP REFERENCE
 --------------
 
-ADD channel REPLAY filename
+	ADD channel REPLAY filename
 
-PLAY channel filename SPEED speed SEEK [+/-/|/]frames LENGTH franes AUDIO 0/1
+	PLAY channel filename SPEED speed SEEK [+/-/|/]frames LENGTH franes AUDIO 0/1
 
-CALL channel SPEED speed
+	CALL channel SPEED speed
 
-CALL channel SEEK [+/-/|/]frames
+	CALL channel SEEK [+/-/|/]frames
 
-CALL channel LENGTH frames
+	CALL channel LENGTH frames
 
-CALL channel AUDIO 0/1
-
-	call 2 pause
+	CALL channel AUDIO 0/1
