@@ -456,7 +456,7 @@ struct replay_producer : public core::frame_producer
 		int filled = 0;
 		uint8_t* buffer1 = new uint8_t[frame_size];
 		uint8_t* buffer2 = new uint8_t[frame_size];
-		black_frame(buffer1, index_header_->width, index_header_->height);
+		black_frame(buffer1, index_header_->width, index_header_->height, 3);
 		std::copy_n(buffer1, frame_size, buffer2);
 
 		if (leftovers_ != NULL)

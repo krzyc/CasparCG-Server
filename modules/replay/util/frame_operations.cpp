@@ -212,17 +212,18 @@ l1:
 		});
 	}
 
-	void black_frame(mmx_uint8_t* dst, size_t width, size_t height)
+	void black_frame(mmx_uint8_t* dst, size_t width, size_t height, size_t stride)
 	{
 		uint32_t full_size = width * height;
 		tbb::parallel_for(tbb::blocked_range<size_t>(0, full_size), [=](const tbb::blocked_range<size_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); i++)
 			{
-				dst[i*4] = 0;
-				dst[i*4+1] = 0;
-				dst[i*4+2] = 0;
-				dst[i*4+3] = 255;
+				dst[i*stride] = 0;
+				dst[i*stride+1] = 0;
+				dst[i*stride+2] = 0;
+				if (stride == 4)
+					dst[i*stride+3] = 255;
 			}
 		});
 	}

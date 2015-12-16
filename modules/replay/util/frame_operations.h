@@ -35,5 +35,5 @@ void interlace_fields(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint
 void interlace_frames(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
 void field_double(const mmx_uint8_t* src, mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
 void blend_images(const mmx_uint8_t* src1, mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride, uint8_t level);
-void black_frame(mmx_uint8_t* dst, size_t width, size_t height);
+void black_frame(mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
 }}
