@@ -440,7 +440,7 @@ namespace caspar { namespace replay {
 		if (audioBufSize > 0)
 		{
 			read = 0;
-			(*audio) = new int32_t[audioBufSize];
+			(*audio) = new int32_t[audioBufSize/4];
 			ReadFile(infile, (*audio), audioBufSize, &read, FALSE);
 		}
 

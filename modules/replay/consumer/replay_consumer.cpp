@@ -164,19 +164,19 @@ public:
 		switch (mode_)
 		{
 		case PROGRESSIVE:
-			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling, frame.audio_data().begin(), frame.audio_data().size());
+			written = write_frame(out_file, format_desc.width, format_desc.height, frame.image_data().begin(), quality, PROGRESSIVE, subsampling, frame.audio_data().begin(), frame.audio_data().size()*4);
 			write_index(idx_file, written);
 			break;
 		case UPPER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin(), frame.audio_data().size()*2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin() + frame.audio_data().size()/2, frame.audio_data().size()*2);
 			write_index(idx_file, written);
 			break;
 		case LOWER:
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin(), (frame.audio_data().size()) / 2);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, LOWER, subsampling, frame.audio_data().begin(), frame.audio_data().size()*2);
 			write_index(idx_file, written);
-			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin() + (frame.audio_data().size() / 2), (frame.audio_data().size()) / 2);
+			written = write_frame(out_file, format_desc.width, format_desc.height / 2, frame.image_data().begin(), quality, UPPER, subsampling, frame.audio_data().begin() + frame.audio_data().size()/2, frame.audio_data().size()*2);
 			write_index(idx_file, written);
 			break;
 		}

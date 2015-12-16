@@ -76,7 +76,7 @@ struct replay_producer : public core::frame_producer
 	mjpeg_file_handle						in_idx_file_;
 	boost::shared_ptr<mjpeg_file_header>	index_header_;
 	boost::shared_ptr<mjpeg_file_header_ex>	index_header_ex_;
-	const safe_ptr<core::frame_factory>			frame_factory_;
+	const safe_ptr<core::frame_factory>		frame_factory_;
 	tbb::atomic<uint64_t>					framenum_;
 	tbb::atomic<uint64_t>					real_framenum_;
 	tbb::atomic<uint64_t>					real_last_framenum_;
@@ -88,6 +88,7 @@ struct replay_producer : public core::frame_producer
 	size_t									leftovers_size_;
 	int										leftovers_duration_;
 	bool									interlaced_;
+	int										audio_;
 	float									speed_;
 	float									abs_speed_;
 	int										frame_divider_;
@@ -98,7 +99,14 @@ struct replay_producer : public core::frame_producer
 	std::thread*							decoder_;
 
 #pragma warning(disable:4244)
-	explicit replay_producer(const safe_ptr<core::frame_factory>& frame_factory, const std::wstring& filename, const int sign, const long long start_frame, const long long last_frame, const float start_speed) 
+	explicit replay_producer(
+			const safe_ptr<core::frame_factory>& frame_factory,
+			const std::wstring& filename,
+			const int sign,
+			const long long start_frame,
+			const long long last_frame,
+			const float start_speed,
+			const int audio = 0) 
 		: filename_(filename)
 		, frame_(core::basic_frame::empty())
 		, last_frame_(core::basic_frame::empty())
@@ -146,6 +154,7 @@ struct replay_producer : public core::frame_producer
 						}
 
 						set_playback_speed(start_speed);
+						audio_ = audio;
 						result_framenum_ = 0;
 						framenum_ = 0;
 						last_framenum_ = 0;
@@ -247,11 +256,11 @@ struct replay_producer : public core::frame_producer
 			std::copy_n(frame_data, size - line, frame->image_data().begin() + line);
 		}
 
-		/*if (audio_data_length > 0)
+		if (audio_ && audio_data_length > 0)
 		{
-			frame->audio_data().reserve(audio_data_length);
-			std::copy_n(audio_data, audio_data_length, frame->audio_data().begin());
-		}*/
+			core::audio_buffer samples(audio_data, audio_data + audio_data_length/4);
+			frame->audio_data() = samples;
+		}
 
 		frame->commit();
 		frame_ = std::move(frame);
@@ -271,6 +280,7 @@ struct replay_producer : public core::frame_producer
 		static const boost::wregex pause_exp(L"PAUSE", boost::regex::icase);
 		static const boost::wregex seek_exp(L"SEEK\\s+(?<SIGN>[\\+\\-\\|])?(?<VALUE>[\\d]+)", boost::regex::icase);
 		static const boost::wregex length_exp(L"LENGTH\\s+(?<VALUE>[\\d]+)", boost::regex::icase);
+		static const boost::wregex audio_exp(L"AUDIO\\s+(?<VALUE>[\\d]+)", boost::regex::icase);
 		
 		boost::wsmatch what;
 		if(boost::regex_match(param, what, pause_exp))
@@ -325,6 +335,14 @@ struct replay_producer : public core::frame_producer
 					if (interlaced_)
 						last_framenum_ = last_framenum_ * 2;
 				}
+			}
+			return L"";
+		}
+		if(boost::regex_match(param, what, audio_exp))
+		{
+			if(!what["VALUE"].str().empty())
+			{
+				audio_ = (boost::lexical_cast<int>(what["VALUE"].str()) == 1 ? 1 : 0);
 			}
 			return L"";
 		}
@@ -692,9 +710,9 @@ struct replay_producer : public core::frame_producer
 
 		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 
-		audio = new int32_t[audio1_size + audio2_size];
-		std::copy_n(audio1, audio1_size, audio);
-		std::copy_n(audio2, audio2_size, audio + audio1_size);
+		audio = new int32_t[(audio1_size + audio2_size)/4];
+		memcpy(audio, audio1, audio1_size);
+		memcpy(audio + audio1_size/4, audio2, audio2_size);
 
 		full_frame = new mmx_uint8_t[field1_size + field2_size];
 
@@ -808,6 +826,7 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 		return core::frame_producer::empty();
 
 	int sign = 0;
+	int audio = 0;
 	long long start_frame = 0;
 	long long last_frame = 0;
 	float start_speed = 1.0f;
@@ -859,11 +878,23 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 					}
 				}
 			}
+			else if (params[i] == L"AUDIO")
+			{
+				static const boost::wregex speed_exp(L"(?<VALUE>[\\d]+)", boost::regex::icase);
+				boost::wsmatch what;
+				if (boost::regex_match(params[i+1], what, speed_exp))
+				{
+					if (!what["VALUE"].str().empty())
+					{
+						audio = (boost::lexical_cast<int>(what["VALUE"].str()) == 1 ? 1 : 0);
+					}
+				}
+			}
 		}
 	}
 
 	return create_producer_print_proxy(
-			make_safe<replay_producer>(frame_factory, filename + L"." + *ext, sign, start_frame, last_frame, start_speed));
+			make_safe<replay_producer>(frame_factory, filename + L"." + *ext, sign, start_frame, last_frame, start_speed, audio));
 }
 
 
