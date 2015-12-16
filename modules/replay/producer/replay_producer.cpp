@@ -19,6 +19,7 @@
 *
 * Author: Robert Nagy, ronag89@gmail.com
 *		  Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
 #define NOMINMAX

@@ -9,6 +9,12 @@ I (@jstarpl) have updated this repository so that any future forks and work on t
 can use his work and the latest CasparCG codebase. You can find the latest compiled
 binaries on the [@krzyc download page](https://github.com/krzyc/CasparCG-Server/releases/).
 
+Please report bugs and proposals on GitHub:
+https://github.com/krzyc/CasparCG-Server/issues
+
+Forum thread regarding this edition is avaliable at:
+http://casparcg.com/forum/viewtopic.php?f=3&t=1310
+
 System Requirements
 -------------------
 
@@ -81,6 +87,12 @@ This will move the playhead of your replay 50 frames backward
 
     call 2 seek -50
 
+You can limit length of played clip:
+
+	call 2 length 500
+	
+This will limit length of played clips to 500 frames
+	
 You can also change the speed of your playback (this is somewhat wonky
 right now):
 
@@ -99,7 +111,32 @@ Will make the playback go at half the speed
 Will make the playback go backwards at 3/4 of normal speed
 
     call 2 speed -0.75
-
+	
 Will pause the playback (is the same as setting speed to 0)
+
+You can enable or disable audio:
+
+	call 2 audio 1
+	
+Will enable audio
+
+	call 2 audio 0
+	
+Will disable audio
+
+AMCP REFERENCE
+--------------
+
+ADD channel REPLAY filename
+
+PLAY channel filename SPEED speed SEEK [+/-/|/]frames LENGTH franes AUDIO 0/1
+
+CALL channel SPEED speed
+
+CALL channel SEEK [+/-/|/]frames
+
+CALL channel LENGTH frames
+
+CALL channel AUDIO 0/1
 
 	call 2 pause

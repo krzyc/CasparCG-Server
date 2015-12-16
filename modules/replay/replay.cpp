@@ -18,6 +18,7 @@
 * along with CasparCG. If not, see <http://www.gnu.org/licenses/>.
 *
 * Author: Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
 #include "replay.h"
