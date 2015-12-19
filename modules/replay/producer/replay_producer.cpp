@@ -780,10 +780,20 @@ struct replay_producer : public core::frame_producer
 	{
 		boost::property_tree::wptree info;
 		info.add(L"type", L"replay-producer");
-		info.add(L"filename", filename_);
-		info.add(L"play-head", (interlaced_ ? real_framenum_ / 2 : real_framenum_));
-		info.add(L"start-timecode", boost::posix_time::to_iso_wstring(index_header_->begin_timecode));
-		info.add(L"speed", speed_);
+		info.add(L"filename",			filename_);
+		info.add(L"play-head",			(interlaced_ ? real_framenum_ / 2 : real_framenum_)); // deprecated
+		info.add(L"start-timecode",		boost::posix_time::to_iso_wstring(index_header_->begin_timecode));
+		info.add(L"speed",				speed_);
+		info.add(L"width",				index_header_->width);
+		info.add(L"height",				index_header_->height);
+		info.add(L"progressive",		interlaced_);
+		info.add(L"audio",				(audio_ ? true : false));
+		info.add(L"fps",				index_header_->fps);
+		info.add(L"loop",				false); // not implemented
+		info.add(L"frame-number",		static_cast<int32_t>((real_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1)));
+		info.add(L"nb-frames",			static_cast<int32_t>(((last_framenum_ > 0 ? last_framenum_ : real_last_framenum_)  - first_framenum_) / (interlaced_ ? 2 : 1)));
+		info.add(L"file-frame-number",	static_cast<int32_t>((interlaced_ ? real_framenum_ / 2 : real_framenum_)));
+		info.add(L"file-nb-frames",		static_cast<int32_t>(real_last_framenum_ / (interlaced_ ? 2 : 1)));
 		return info;
 	}
 
