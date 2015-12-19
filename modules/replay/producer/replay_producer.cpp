@@ -580,21 +580,29 @@ struct replay_producer : public core::frame_producer
 	// TODO: Move the file operations and frame rendering to a separate function and put the rendered frames to a buffer
 	std::pair<safe_ptr<core::basic_frame>, uint64_t> render_frame(int hints)
 	{
+		// if length is defined
 		if (last_framenum_ > 0)
 		{
-			if (last_framenum_ <= framenum_)
+			if (last_framenum_ <= framenum_ && speed_ > 0.0f)
 			{
 				//frame_ = core::basic_frame::eof(); // Uncomment this to keep a steady frame after the length has run through
-				return std::make_pair(frame_, framenum_);
+				return std::make_pair(disable_audio(frame_), framenum_);
+			}
+			if (first_framenum_ >= framenum_ && speed_ < 0.0f)
+			{
+				return std::make_pair(disable_audio(frame_), framenum_);
 			}
 		}
-
+		if (framenum_ == 0 && speed_ < 0.0f)
+		{
+			return std::make_pair(disable_audio(frame_), framenum_);
+		}
 		// IF is paused
 		if (speed_ == 0.0f) 
 		{
 			if (!seeked_)
 			{
-				return std::make_pair(frame_, framenum_);
+				return std::make_pair(disable_audio(frame_), framenum_);
 			}
 			else
 			{
@@ -690,6 +698,7 @@ struct replay_producer : public core::frame_producer
 			make_frame(field1, field1_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
 
 			delete field1;
+			delete audio1;
 
 			return std::make_pair(frame_, framenum_);
 		}
@@ -702,6 +711,7 @@ struct replay_producer : public core::frame_producer
 			make_frame(full_frame, field1_size * 2, index_header_->width, index_header_->height, false);
 
 			delete field1;
+			delete audio1;
 			delete full_frame;
 
 			return std::make_pair(frame_, framenum_);
@@ -718,6 +728,8 @@ struct replay_producer : public core::frame_producer
 		audio = new int32_t[(audio1_size + audio2_size)/4];
 		memcpy(audio, audio1, audio1_size);
 		memcpy(audio + audio1_size/4, audio2, audio2_size);
+		delete audio1;
+		delete audio2;
 
 		full_frame = new mmx_uint8_t[field1_size + field2_size];
 
@@ -729,6 +741,7 @@ struct replay_producer : public core::frame_producer
 			delete field1;
 		if (field2 != NULL)
 			delete field2;
+		delete audio;
 		delete full_frame;
 
 		return std::make_pair(frame_, framenum_);
@@ -759,7 +772,7 @@ struct replay_producer : public core::frame_producer
 		
 	virtual safe_ptr<core::basic_frame> last_frame() const override
 	{
-		return last_frame_;
+		return disable_audio(last_frame_);
 	}
 
 #pragma warning (disable: 4244)
