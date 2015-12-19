@@ -284,11 +284,13 @@ struct replay_producer : public core::frame_producer
 		static const boost::wregex audio_exp(L"AUDIO\\s+(?<VALUE>[\\d]+)", boost::regex::icase);
 		
 		boost::wsmatch what;
+		// PAUSE
 		if(boost::regex_match(param, what, pause_exp))
 		{
 			set_playback_speed(0.0f);
 			return L"";
 		}
+		// SPEED
 		if(boost::regex_match(param, what, speed_exp))
 		{
 			if(!what["VALUE"].str().empty())
@@ -298,6 +300,7 @@ struct replay_producer : public core::frame_producer
 			}
 			return L"";
 		}
+		// SEEK
 		if(boost::regex_match(param, what, seek_exp))
 		{
 			int sign = 0;
@@ -323,6 +326,7 @@ struct replay_producer : public core::frame_producer
 			}
 			return L"";
 		}
+		// LENGTH
 		if(boost::regex_match(param, what, length_exp))
 		{
 			if(!what["VALUE"].str().empty())
@@ -332,7 +336,7 @@ struct replay_producer : public core::frame_producer
 					last_framenum_ = 0;
 				else
 				{
-					last_framenum_ = first_framenum_ + last_frame;
+					last_framenum_ = first_framenum_ / 2 + last_frame;
 					if (interlaced_)
 						last_framenum_ = last_framenum_ * 2;
 				}
