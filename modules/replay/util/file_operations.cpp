@@ -38,8 +38,6 @@
 #include "frame_operations.h"
 #include "file_operations.h"
 
-#include <Windows.h>
-
 #define VIDEO_OUTPUT_BUF_SIZE		4096
 #define VIDEO_INPUT_BUF_SIZE		4096
 
@@ -73,8 +71,9 @@ namespace caspar { namespace replay {
 	typedef struct error_mgr * error_ptr;
 
 #pragma warning(disable:4706)
-	mjpeg_file_handle safe_fopen(const wchar_t* filename, DWORD mode, DWORD shareFlags)
+	mjpeg_file_handle safe_fopen(const wchar_t* filename, uint32_t mode, uint32_t shareFlags)
 	{
+#ifdef REPLAY_IO_WINAPI
 		//  | FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH
 		mjpeg_file_handle handle;
 		if (handle = CreateFileW(filename, mode, shareFlags, NULL, (mode == GENERIC_WRITE ? CREATE_ALWAYS : OPEN_EXISTING), (mode == GENERIC_WRITE ? 0 : 0), NULL))
@@ -83,16 +82,26 @@ namespace caspar { namespace replay {
 		}
 		else
 		{
-			DWORD error = GetLastError();
+			uint32_t error = GetLastError();
 			printf("Error while opening file: %d (0x%x)", error, error);
 			return NULL;
 		}
+#else
+		if (mode == GENERIC_WRITE)
+			return fopen64(utf8util::UTF8FromUTF16(filename).c_str(), "wb");
+		else
+			return fopen64(utf8util::UTF8FromUTF16(filename).c_str(), "rb");
+#endif
 	}
 #pragma warning(default:4706)
 
 	void safe_fclose(mjpeg_file_handle file_handle)
 	{
+#ifdef REPLAY_IO_WINAPI
 		CloseHandle(file_handle);
+#else
+		fclose(file_handle);
+#endif;
 	}
 
 	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode, int audio_channels)
@@ -109,8 +118,12 @@ namespace caspar { namespace replay {
 		header.field_mode = format_desc->field_mode;
 		header.begin_timecode = start_timecode;
 
-		DWORD written = 0;
-		WriteFile(outfile_idx, &header, sizeof(mjpeg_file_header), &written, NULL);
+		uint32_t written = 0;
+#ifdef REPLAY_IO_WINAPI
+		WriteFile(outfile_idx, &header, sizeof(mjpeg_file_header), (DWORD*)&written, NULL);
+#else
+		written = fwrite(&header, 1, sizeof(mjpeg_file_header), outfile_idx);
+#endif
 
 		mjpeg_file_header_ex	header_ex;
 		header_ex.video_fourcc[0] = 'm'; // Set video fourcc
@@ -126,17 +139,25 @@ namespace caspar { namespace replay {
 		header_ex.audio_channels = audio_channels; // 2 for stereo
 
 		written = 0;
-		WriteFile(outfile_idx, &header_ex, sizeof(mjpeg_file_header_ex), &written, NULL);
+
+#ifdef REPLAY_IO_WINAPI
+		WriteFile(outfile_idx, &header_ex, sizeof(mjpeg_file_header_ex), (DWORD*)&written, NULL);
+#else
+		written = fwrite(&header_ex, 1, sizeof(mjpeg_file_header_ex), outfile_idx);
+#endif
 	}
 
 	int read_index_header(mjpeg_file_handle infile_idx, mjpeg_file_header** header)
 	{
 		*header = new mjpeg_file_header();
 
-		DWORD read = 0;
+		uint32_t read = 0;
 		
-		//read = fread(*header, sizeof(mjpeg_file_header), 1, infile_idx.get());
-		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header), &read, NULL);
+#ifdef REPLAY_IO_WINAPI
+		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header), (DWORD*)&read, NULL);
+#else
+		read = fread(*header, 1, sizeof(mjpeg_file_header), infile_idx);
+#endif
 		if (read != sizeof(mjpeg_file_header))
 		{
 			delete *header;
@@ -152,10 +173,13 @@ namespace caspar { namespace replay {
 	{
 		*header = new mjpeg_file_header_ex();
 
-		DWORD read = 0;
-		
-		//read = fread(*header, sizeof(mjpeg_file_header), 1, infile_idx.get());
-		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header_ex), &read, NULL);
+		uint32_t read = 0;
+
+#ifdef REPLAY_IO_WINAPI
+		ReadFile(infile_idx, *header, sizeof(mjpeg_file_header_ex), (DWORD*)&read, NULL);
+#else
+		read = fread(*header, 1, sizeof(mjpeg_file_header_ex), infile_idx);
+#endif
 		if (read != sizeof(mjpeg_file_header_ex))
 		{
 			delete *header;
@@ -171,9 +195,13 @@ namespace caspar { namespace replay {
 	{
 		/* fwrite(&offset, sizeof(long long), 1, outfile_idx.get());
 		fflush(outfile_idx.get()); */
-		DWORD written = 0;
+		uint32_t written = 0;
 		//boost::timer perf_timer;
-		WriteFile(outfile_idx, &offset, sizeof(long long), &written, NULL);
+#ifdef REPLAY_IO_WINAPI
+		WriteFile(outfile_idx, &offset, sizeof(long long), (DWORD*)&written, NULL);
+#else
+		written = fwrite(&offset, 1, sizeof(long long), outfile_idx);
+#endif
 		//if (write_time != NULL)
 		//	*write_time = perf_timer.elapsed();
 	}
@@ -181,8 +209,13 @@ namespace caspar { namespace replay {
 	long long read_index(mjpeg_file_handle infile_idx)
 	{
 		long long offset = 0;
-		DWORD read = 0;
-		if (ReadFile(infile_idx, &offset, sizeof(long long), &read, NULL))
+		uint32_t read = 0;
+#ifdef REPLAY_IO_WINAPI
+		ReadFile(infile_idx, &offset, sizeof(long long), (DWORD*)&read, NULL);
+#else
+		read = fread(&offset, 1, sizeof(long long), infile_idx);
+#endif
+		if (read)
 		{
 			return offset;
 		}
@@ -192,60 +225,90 @@ namespace caspar { namespace replay {
 		}
 	}
 
-	int seek_index(mjpeg_file_handle infile_idx, long long frame, DWORD origin)
+	int seek_index(mjpeg_file_handle infile_idx, long long frame, uint32_t origin)
 	{
+#ifdef REPLAY_IO_WINAPI
 		LARGE_INTEGER position;
+#endif
 		bool result;
 		switch (origin)
 		{
 			case FILE_CURRENT:
 				//return _fseeki64_nolock(infile_idx.get(), frame * sizeof(long long), SEEK_CUR);
+#ifdef REPLAY_IO_WINAPI
 				position.QuadPart = frame * sizeof(long long);
 				result = SetFilePointerEx(infile_idx, position, NULL, FILE_CURRENT);
+#else
+				return fseek64(infile_idx, frame * sizeof(long long), SEEK_CUR);
+#endif
 				break;
 			case FILE_BEGIN:
 			default:
 				//return _fseeki64_nolock(infile_idx.get(), frame * sizeof(long long) + sizeof(mjpeg_file_header), SEEK_SET);
+#ifdef REPLAY_IO_WINAPI
 				position.QuadPart = frame * sizeof(long long) + sizeof(mjpeg_file_header) + sizeof(mjpeg_file_header_ex);
 				result = SetFilePointerEx(infile_idx, position, NULL, FILE_BEGIN);
+#else
+				return fseek64(infile_idx, frame * sizeof(long long) + sizeof(mjpeg_file_header) + sizeof(mjpeg_file_header_ex), SEEK_SET);
+#endif
 				break;
 		}
 		return (result ? 0 : 1);
 	}
 
-	int seek_frame(mjpeg_file_handle infile, long long offset, DWORD origin)
+	int seek_frame(mjpeg_file_handle infile, long long offset, uint32_t origin = FILE_BEGIN /*deprecated*/)
 	{
 		//return _fseeki64_nolock(infile.get(), offset, origin);
+#ifdef REPLAY_IO_WINAPI
 		LARGE_INTEGER position;
 		position.QuadPart = offset;
-		bool result = SetFilePointerEx(infile, position, NULL, origin);
+		bool result = SetFilePointerEx(infile, position, NULL, FILE_BEGIN);
 		return (result ? 0 : 1);
+#else
+		return fseek64(infile, offset, SEEK_SET);
+#endif
 	}
 
 	long long tell_index(mjpeg_file_handle infile_idx)
 	{
 		//return (_ftelli64_nolock(infile_idx.get()) - sizeof(mjpeg_file_header)) / sizeof(long long);
+#ifdef REPLAY_IO_WINAPI
 		LARGE_INTEGER zero;
 		zero.QuadPart = 0;
 		LARGE_INTEGER position;
 		SetFilePointerEx(infile_idx, zero, &position, FILE_CURRENT);
 		return (position.QuadPart - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
+#else
+		return (ftell64(infile_idx) - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
+#endif
 	}
 
 	long long length_index(mjpeg_file_handle infile_idx)
 	{
+#ifdef REPLAY_IO_WINAPI
 		LARGE_INTEGER size;
 		GetFileSizeEx(infile_idx, &size);
 		return (size.QuadPart - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
+#else
+		long long pos = ftell64(infile_idx);
+		fseek64(infile_idx, 0, SEEK_END);
+		long long len = (ftell64(infile_idx) - sizeof(mjpeg_file_header) - sizeof(mjpeg_file_header_ex)) / sizeof(long long);
+		fseek64(infile_idx, pos, SEEK_SET);
+		return len;
+#endif
 	}
 
 	long long tell_frame(mjpeg_file_handle infile)
 	{
+#ifdef REPLAY_IO_WINAPI
 		LARGE_INTEGER zero;
 		zero.QuadPart = 0;
 		LARGE_INTEGER position;
 		SetFilePointerEx(infile, zero, &position, FILE_CURRENT);
 		return position.QuadPart;
+#else
+		return ftell64(infile);
+#endif
 	}
 
 	struct error_mgr {
@@ -268,8 +331,12 @@ namespace caspar { namespace replay {
 
 		//size_t nbytes = src->m_io->read_proc(src->buffer, 1, INPUT_BUF_SIZE, src->infile);
 
-		DWORD nbytes;
-		ReadFile(src->infile, src->buffer, VIDEO_INPUT_BUF_SIZE, &nbytes, NULL);
+		uint32_t nbytes;
+#ifdef REPLAY_IO_WINAPI
+		ReadFile(src->infile, src->buffer, VIDEO_INPUT_BUF_SIZE, (DWORD*)&nbytes, NULL);
+#else
+		nbytes = fread(src->buffer, 1, VIDEO_INPUT_BUF_SIZE, src->infile);
+#endif
 
 		if (nbytes <= 0)
 		{
@@ -371,15 +438,22 @@ namespace caspar { namespace replay {
 	{
 		dest_ptr dest = (dest_ptr) cinfo->dest;
 
-		DWORD datacount = VIDEO_OUTPUT_BUF_SIZE - dest->pub.free_in_buffer;
+		uint32_t datacount = VIDEO_OUTPUT_BUF_SIZE - dest->pub.free_in_buffer;
 
 		// write any data remaining in the buffer
 
 		if (datacount > 0)
 		{
-			DWORD written = 0;
-			bool success = WriteFile(dest->outfile, dest->buffer, datacount, &written, NULL);
-			//bool success = true;
+			uint32_t written = 0;
+			bool success = false;
+
+#ifdef REPLAY_IO_WINAPI
+			success = WriteFile(dest->outfile, dest->buffer, datacount, (DWORD*)&written, NULL);
+#else
+			written = fwrite(dest->buffer, 1, datacount, dest->outfile);
+			if (written > 0)
+				success = true;
+#endif
 
 			if (!success)
 			  throw(cinfo, JERR_FILE_WRITE);
@@ -390,9 +464,16 @@ namespace caspar { namespace replay {
 	{
 		dest_ptr dest = (dest_ptr) cinfo->dest;
 
-		DWORD written = 0;
-		bool success = WriteFile(dest->outfile, dest->buffer, VIDEO_OUTPUT_BUF_SIZE, &written, NULL);
-		//bool success = true;
+		uint32_t written = 0;
+		bool success = false;
+		
+#ifdef REPLAY_IO_WINAPI
+		success = WriteFile(dest->outfile, dest->buffer, VIDEO_OUTPUT_BUF_SIZE, (DWORD*)&written, NULL);
+#else
+		written = fwrite(dest->buffer, 1, VIDEO_OUTPUT_BUF_SIZE, dest->outfile);
+		if (written > 0)
+			success = true;
+#endif
 
 		if (!success)
 			throw(cinfo, JERR_FILE_WRITE);
@@ -434,14 +515,23 @@ namespace caspar { namespace replay {
 	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image, size_t* audioSize, int32_t** audio)
 	{
 		size_t audioBufSize = 0;
-		DWORD read = 0;
+		uint32_t read = 0;
 
-		ReadFile(infile, &audioBufSize, sizeof(size_t), &read, FALSE);
+#ifdef REPLAY_IO_WINAPI
+		ReadFile(infile, &audioBufSize, sizeof(size_t), (DWORD*)&read, FALSE);
+#else
+		fread(&audioBufSize, 1, sizeof(size_t), infile);
+#endif
+
 		if (audioBufSize > 0)
 		{
 			read = 0;
 			(*audio) = new int32_t[audioBufSize/4];
-			ReadFile(infile, (*audio), audioBufSize, &read, FALSE);
+#ifdef REPLAY_IO_WINAPI
+			ReadFile(infile, *audio, audioBufSize, (DWORD*)&read, FALSE);
+#else
+			read = fread(*audio, 1, audioBufSize, infile);
+#endif
 		}
 
 		(*audioSize) = audioBufSize;
@@ -453,7 +543,6 @@ namespace caspar { namespace replay {
 		JSAMPROW row_pointer[1];
 		int row_stride;
 
-		cinfo.err = jpeg_std_error(&jerr.pub);
 		cinfo.err = jpeg_std_error(&jerr.pub);
 		jerr.pub.error_exit = error_exit;
 		/* Establish the setjmp return context for my_error_exit to use. */
@@ -499,10 +588,14 @@ namespace caspar { namespace replay {
 	{
 		long long start_position = tell_frame(outfile);
 
-		DWORD written = 0;
-		bool success = true;
-		success = WriteFile(outfile, &audio_data_length, sizeof(size_t), &written, NULL);
-		success = WriteFile(outfile, audio_data, audio_data_length, &written, NULL);
+#ifdef REPLAY_IO_WINAPI
+		uint32_t written = 0;
+		WriteFile(outfile, &audio_data_length, sizeof(size_t), (DWORD*)&written, NULL);
+		WriteFile(outfile, audio_data, audio_data_length, (DWORD*)&written, NULL);
+#else
+		fwrite(&audio_data_length, 1, sizeof(size_t), outfile);
+		fwrite(audio_data, 1, audio_data_length, outfile);
+#endif
 
 		// JPEG Compression Parameters
 		struct jpeg_compress_struct cinfo;

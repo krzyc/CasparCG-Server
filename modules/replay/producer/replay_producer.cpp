@@ -667,7 +667,7 @@ struct replay_producer : public core::frame_producer
 
 		move_to_next_frame(); // CHECK THIS
 
-		seek_frame(in_file_, field1_pos, SEEK_SET);
+		seek_frame(in_file_, field1_pos, FILE_BEGIN);
 
 		mmx_uint8_t* field1 = NULL;
 		mmx_uint8_t* field2 = NULL;
@@ -707,7 +707,7 @@ struct replay_producer : public core::frame_producer
 
 		move_to_next_frame();
 
-		seek_frame(in_file_, field2_pos, SEEK_SET);
+		seek_frame(in_file_, field2_pos, FILE_BEGIN);
 
 		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 

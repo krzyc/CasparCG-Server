@@ -26,11 +26,45 @@
 
 #include "frame_operations.h"
 
+#ifdef _WIN32
 #include <Windows.h>
+// comment below line to use STDIO file operations on Windows
+#define REPLAY_IO_WINAPI
+#endif
+
+#ifndef REPLAY_IO_WINAPI
+#include "common/utility/utf8conv.h"
+#define _FILE_OFFSET_BITS  64
+#ifndef fopen64
+#define fopen64 fopen
+#endif
+#ifndef fseek64
+#define fseek64 _fseeki64
+#endif
+#ifndef ftell64
+#define ftell64 _ftelli64
+#endif
+#ifndef FILE_CURRENT
+#define FILE_CURRENT SEEK_CUR
+#endif
+#ifndef FILE_BEGIN
+#define FILE_BEGIN SEEK_SET
+#endif
+#ifndef GENERIC_READ
+#define GENERIC_READ                     0x80000000
+#endif
+#ifndef GENERIC_WRITE
+#define GENERIC_WRITE                    0x40000000
+#endif
+#endif
 
 #pragma once
 
+#ifdef REPLAY_IO_WINAPI
 typedef HANDLE						mjpeg_file_handle;
+#else
+typedef FILE*						mjpeg_file_handle;
+#endif
 
 namespace caspar { namespace replay {
 
@@ -67,7 +101,7 @@ namespace caspar { namespace replay {
 		Y411
 	};
 
-	mjpeg_file_handle safe_fopen(const wchar_t* filename, DWORD mode, DWORD shareFlags);
+	mjpeg_file_handle safe_fopen(const wchar_t* filename, uint32_t mode, uint32_t shareFlags);
 	void safe_fclose(mjpeg_file_handle file_handle);
 	void write_index_header(mjpeg_file_handle outfile_idx, const core::video_format_desc* format_desc, boost::posix_time::ptime start_timecode, int audio_channels);
 	void write_index(mjpeg_file_handle outfile_idx, long long offset);
@@ -75,10 +109,10 @@ namespace caspar { namespace replay {
 	long long read_index(mjpeg_file_handle infile_idx);
 	long long tell_index(mjpeg_file_handle infile_idx);
 	long long length_index(mjpeg_file_handle infile_idx);
-	int seek_index(mjpeg_file_handle infile_idx, long long frame, DWORD origin);
+	int seek_index(mjpeg_file_handle infile_idx, long long frame, uint32_t origin);
 	long long tell_frame(mjpeg_file_handle infile);
 	int read_index_header(mjpeg_file_handle infile_idx, mjpeg_file_header** header);
 	int read_index_header_ex(mjpeg_file_handle infile_idx, mjpeg_file_header_ex** header);
 	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image, size_t* audioSize, int32_t** audio);
-	int seek_frame(mjpeg_file_handle infile, long long offset, DWORD origin);
+	int seek_frame(mjpeg_file_handle infile, long long offset, uint32_t origin);
 }}
