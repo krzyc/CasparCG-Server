@@ -30,6 +30,7 @@
 
 #define OPTIMIZE_RGB_TO_BGRA
 #define OPTIMIZE_BGRA_TO_RGB
+//#define REPLAY_USE_ASM
 //#define OPTIMIZE_BLEND_IMAGES
 
 namespace caspar { namespace replay {
@@ -37,7 +38,7 @@ namespace caspar { namespace replay {
 #pragma warning(disable:4309)
 	void bgra_to_rgb(const mmx_uint8_t* src, mmx_uint8_t* dst, int line_width)
 	{
-#ifndef OPTIMIZE_BGRA_TO_RGB
+#if !defined(OPTIMIZE_BGRA_TO_RGB)
 		tbb::parallel_for(tbb::blocked_range<int>(0, line_width), [=](const tbb::blocked_range<int>& r) {
 			for (int i = r.begin(); i != r.end(); i++) {
 				*(dst + i * 3) = *(src + i * 4 + 2);
@@ -45,6 +46,34 @@ namespace caspar { namespace replay {
 				*(dst + i * 3 + 2) = *(src + i * 4);
 			}
 		});
+#elif defined(OPTIMIZE_BGRA_TO_RGB) && !defined(REPLAY_USE_ASM)
+		// bgrabgra bgrabgra => rgbrgbrg brgb     |
+		// bgrabgra bgrabgra =>              rgbr | gbrgbrgb XXXXXXXX
+
+		__m128i mask1 = _mm_set_epi8(0x80, 0x80, 0x80, 0x80,   12,   13,   14,    8,  9, 10,  4, 5, 6,  0, 1, 2);
+		__m128i mask2 = _mm_set_epi8(   6,    0,    1,    2, 0x80, 0x80, 0x80, 0x80, 12, 13, 14, 8, 9, 10, 4, 5);
+		__m128i mask3 = _mm_set_epi8(0xFF, 0xFF, 0xFF, 0xFF,    0,    0,    0,    0,  0,  0,  0, 0, 0,  0, 0, 0);
+		__m128i src1, src2, tmp;
+
+		const __m128i* in_vec = (__m128i*)src;
+		__m64* out_vec = (__m64*)dst;
+
+		line_width /= 32;
+
+		while (line_width-- > 0)
+		{
+			src1 = in_vec[0];
+			src1 = _mm_shuffle_epi8(src1, mask1);
+			src2 = in_vec[1];
+			src2 = _mm_shuffle_epi8(src2, mask2);
+			tmp = _mm_and_si128(src2, mask3);
+			src1 = _mm_or_si128(src1, tmp);
+			_mm_storeu_si128((__m128i*)&out_vec[0], src1);
+			_mm_storel_epi64((__m128i*)&out_vec[2], src2);
+
+			in_vec += 2;
+			out_vec +=3;
+		}
 #else
 		int8_t mask[16] = {2,1,0,6,5,4,10,9,8,14,13,12,0xFF,0xFF,0xFF,0xFF};//{0xFF, 0xFF, 0xFF, 0xFF, 13, 14, 15, 9, 10, 11, 5, 6, 7, 1, 2, 3};
 
