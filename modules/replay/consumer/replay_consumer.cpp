@@ -33,6 +33,7 @@
 #include <common/diagnostics/graph.h>
 #include <boost/timer.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
@@ -289,7 +290,7 @@ public:
 
 safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 {
-	if(params.size() < 1 || params[0] != L"REPLAY")
+	if (params.size() < 1 || !boost::iequals(params[0], L"REPLAY"))
 		return core::frame_consumer::empty();
 
 	std::wstring filename = L"REPLAY";
@@ -304,7 +305,7 @@ safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 
 		for (uint16_t i=2; i<params.size(); i++)
 		{
-			if (params[i] == L"SUBSAMPLING")
+			if (boost::iequals(params[i], L"SUBSAMPLING"))
 			{
 				if (params[i+1] == L"444")
 				{
@@ -327,7 +328,7 @@ safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params)
 					i++;
 				}
 			}
-			else if (params[i] == L"QUALITY")
+			else if (boost::iequals(params[i], L"QUALITY"))
 			{
 				quality = boost::lexical_cast<short>(params[i+1]);
 				i++;

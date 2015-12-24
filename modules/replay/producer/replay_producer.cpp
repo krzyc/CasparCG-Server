@@ -45,6 +45,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/regex.hpp>
 #include <boost/timer.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <tbb/concurrent_queue.h>
 #include <tbb/compat/thread>
@@ -862,7 +863,7 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 	{
 		for (uint16_t i=0; i<params.size(); i++)
 		{
-			if (params[i] == L"SEEK")
+			if (boost::iequals(params[i], L"SEEK"))
 			{
 				static const boost::wregex seek_exp(L"(?<SIGN>[\\|])?(?<VALUE>[\\d]+)", boost::regex::icase);
 				boost::wsmatch what;
@@ -882,7 +883,7 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 					}
 				}
 			}
-			else if (params[i] == L"SPEED")
+			else if (boost::iequals(params[i], L"SPEED"))
 			{
 				static const boost::wregex speed_exp(L"(?<VALUE>[\\d.-]+)", boost::regex::icase);
 				boost::wsmatch what;
@@ -894,11 +895,11 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 					}
 				}
 			}
-			else if (params[i] == L"LENGTH")
+			else if (boost::iequals(params[i], L"LENGTH"))
 			{
-				static const boost::wregex speed_exp(L"(?<VALUE>[\\d]+)", boost::regex::icase);
+				static const boost::wregex length_exp(L"(?<VALUE>[\\d]+)", boost::regex::icase);
 				boost::wsmatch what;
-				if (boost::regex_match(params[i+1], what, speed_exp))
+				if (boost::regex_match(params[i+1], what, length_exp))
 				{
 					if (!what["VALUE"].str().empty())
 					{
@@ -906,11 +907,11 @@ safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factor
 					}
 				}
 			}
-			else if (params[i] == L"AUDIO")
+			else if (boost::iequals(params[i], L"AUDIO"))
 			{
-				static const boost::wregex speed_exp(L"(?<VALUE>[\\d]+)", boost::regex::icase);
+				static const boost::wregex audio_exp(L"(?<VALUE>[\\d]+)", boost::regex::icase);
 				boost::wsmatch what;
-				if (boost::regex_match(params[i+1], what, speed_exp))
+				if (boost::regex_match(params[i+1], what, audio_exp))
 				{
 					if (!what["VALUE"].str().empty())
 					{
