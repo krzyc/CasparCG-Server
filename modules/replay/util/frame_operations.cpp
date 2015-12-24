@@ -18,14 +18,13 @@
 * along with CasparCG. If not, see <http://www.gnu.org/licenses/>.
 *
 * Author: Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
 #include "frame_operations.h"
 
-#include <stdint.h>
 #include <memory>
 #include <tmmintrin.h>
-
 #include <tbb/parallel_for.h>
 
 #define OPTIMIZE_RGB_TO_BGRA

@@ -18,13 +18,14 @@
 * along with CasparCG. If not, see <http://www.gnu.org/licenses/>.
 *
 * Author: Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
-#include <stdint.h>
-#include <boost/shared_ptr.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
+#pragma once
 
-#include "frame_operations.h"
+#include <stdint.h>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <core/video_format.h>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -58,8 +59,6 @@
 #endif
 #endif
 
-#pragma once
-
 #ifdef REPLAY_IO_WINAPI
 typedef HANDLE						mjpeg_file_handle;
 #else
@@ -71,8 +70,8 @@ namespace caspar { namespace replay {
 	struct mjpeg_file_header {
 		char							magick[4]; // = 'OMAV'
 		uint8_t							version; // = 1 for version 1, or 2 for version 2
-		uint32_t							width;
-		uint32_t							height;
+		uint32_t						width;
+		uint32_t						height;
 		double							fps;
 		caspar::core::field_mode::type	field_mode;
 		boost::posix_time::ptime		begin_timecode;

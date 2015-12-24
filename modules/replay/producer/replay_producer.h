@@ -24,15 +24,19 @@
 
 #pragma once
 
-#include <core/producer/frame_producer.h>
-#include <core/parameters/parameters.h>
-
-#include <string>
-#include <vector>
+#include <common/memory/safe_ptr.h>
 
 #define		REPLAY_PRODUCER_BUFFER_SIZE		3
 
-namespace caspar { namespace replay {
+namespace caspar { 
+
+namespace core {
+	struct frame_producer;
+	struct frame_factory;
+	class parameters;
+}
+
+namespace replay {
 
 safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params);
 

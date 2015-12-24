@@ -18,25 +18,22 @@
 * along with CasparCG. If not, see <http://www.gnu.org/licenses/>.
 *
 * Author: Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
+#include "file_operations.h"
+
 #include <boost/shared_ptr.hpp>
-#include <stdint.h>
+#include <jpeglib.h>
+#include <jerror.h>
+#include <setjmp.h>
+
 #include <common/env.h>
 #include <common/log/log.h>
 #include <common/utility/string.h>
 #include <common/concurrency/future_util.h>
 #include <common/diagnostics/graph.h>
-
 #include <core/consumer/frame_consumer.h>
-#include <core/video_format.h>
-#include <core/mixer/read_frame.h>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <jpeglib.h>
-#include <jerror.h>
-#include <setjmp.h>
-#include "frame_operations.h"
-#include "file_operations.h"
 
 #define VIDEO_OUTPUT_BUF_SIZE		4096
 #define VIDEO_INPUT_BUF_SIZE		4096

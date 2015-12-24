@@ -26,18 +26,11 @@
 
 #include <common/memory/safe_ptr.h>
 
-#include <core/parameters/parameters.h>
-#include <core/video_format.h>
-
-#include <boost/property_tree/ptree.hpp>
-
-#include <string>
-#include <vector>
-
 namespace caspar { 
 
 namespace core {
 	struct frame_consumer;
+	class parameters;
 }
 
 namespace replay {

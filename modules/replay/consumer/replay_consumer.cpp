@@ -25,34 +25,18 @@
 #include "replay_consumer.h"
 
 #include <common/concurrency/executor.h>
-#include <common/exception/exceptions.h>
 #include <common/env.h>
-#include <common/log/log.h>
-#include <common/utility/string.h>
 #include <common/concurrency/future_util.h>
 #include <common/diagnostics/graph.h>
-#include <boost/timer.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/algorithm/string.hpp>
-
 #include <core/parameters/parameters.h>
 #include <core/consumer/frame_consumer.h>
-#include <core/video_format.h>
 #include <core/mixer/read_frame.h>
 
-#include <boost/thread.hpp>
-#include <boost/thread/locks.hpp>
-
-#include <tbb/concurrent_queue.h>
+#include <boost/timer.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include "../util/frame_operations.h"
 #include "../util/file_operations.h"
-
-#include <FreeImage.h>
-#include <setjmp.h>
-#include <vector>
-
-#include <Windows.h>
 
 namespace caspar { namespace replay {
 	

@@ -26,16 +26,13 @@
 #include "producer/replay_producer.h"
 #include "consumer/replay_consumer.h"
 
+#include <setjmp.h>
+#include <jpeglib.h>
+
 #include <core/producer/frame_producer.h>
 #include <core/consumer/frame_consumer.h>
 #include <core/parameters/parameters.h>
-
 #include <common/utility/string.h>
-
-#include <FreeImage.h>
-#include <setjmp.h>
-
-#include <jpeglib.h>
 
 namespace caspar { namespace replay {
 

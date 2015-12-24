@@ -18,11 +18,12 @@
 * along with CasparCG. If not, see <http://www.gnu.org/licenses/>.
 *
 * Author: Jan Starzak, jan@ministryofgoodsteps.com
+*		  Krzysztof Pyrkosz, pyrkosz@o2.pl
 */
 
-#include <stdint.h>
-
 #pragma once
+
+#include <stdint.h>
 
 //typedef __declspec(align(16)) uint8_t mmx_uint8_t;
 typedef uint8_t mmx_uint8_t;
