@@ -329,7 +329,7 @@ namespace caspar { namespace replay {
 	{
 		src_ptr src = (src_ptr) cinfo->src;
 
-		//size_t nbytes = src->m_io->read_proc(src->buffer, 1, INPUT_BUF_SIZE, src->infile);
+		//uint32_t nbytes = src->m_io->read_proc(src->buffer, 1, INPUT_BUF_SIZE, src->infile);
 
 		uint32_t nbytes;
 #ifdef REPLAY_IO_WINAPI
@@ -382,8 +382,8 @@ namespace caspar { namespace replay {
 			   */
 			}
 
-			src->pub.next_input_byte += (size_t) num_bytes;
-			src->pub.bytes_in_buffer -= (size_t) num_bytes;
+			src->pub.next_input_byte += (uint32_t)num_bytes;
+			src->pub.bytes_in_buffer -= (uint32_t)num_bytes;
 		}
 	}
 
@@ -512,15 +512,15 @@ namespace caspar { namespace replay {
 		longjmp(myerr->setjmp_buffer, 1);
 	} 
 
-	size_t read_frame(mjpeg_file_handle infile, size_t* width, size_t* height, uint8_t** image, size_t* audioSize, int32_t** audio)
+	uint32_t read_frame(mjpeg_file_handle infile, uint32_t* width, uint32_t* height, uint8_t** image, uint32_t* audioSize, int32_t** audio)
 	{
-		size_t audioBufSize = 0;
+		uint32_t audioBufSize = 0;
 		uint32_t read = 0;
 
 #ifdef REPLAY_IO_WINAPI
-		ReadFile(infile, &audioBufSize, sizeof(size_t), (DWORD*)&read, FALSE);
+		ReadFile(infile, &audioBufSize, sizeof(uint32_t), (DWORD*)&read, FALSE);
 #else
-		fread(&audioBufSize, 1, sizeof(size_t), infile);
+		fread(&audioBufSize, 1, sizeof(uint32_t), infile);
 #endif
 
 		if (audioBufSize > 0)
@@ -584,16 +584,16 @@ namespace caspar { namespace replay {
 	}
 
 	#pragma warning(disable:4267)
-	long long write_frame(mjpeg_file_handle outfile, size_t width, size_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling, const int32_t* audio_data, size_t audio_data_length)
+	long long write_frame(mjpeg_file_handle outfile, uint32_t width, uint32_t height, const uint8_t* image, short quality, mjpeg_process_mode mode, chroma_subsampling subsampling, const int32_t* audio_data, uint32_t audio_data_length)
 	{
 		long long start_position = tell_frame(outfile);
 
 #ifdef REPLAY_IO_WINAPI
 		uint32_t written = 0;
-		WriteFile(outfile, &audio_data_length, sizeof(size_t), (DWORD*)&written, NULL);
+		WriteFile(outfile, &audio_data_length, sizeof(uint32_t), (DWORD*)&written, NULL);
 		WriteFile(outfile, audio_data, audio_data_length, (DWORD*)&written, NULL);
 #else
-		fwrite(&audio_data_length, 1, sizeof(size_t), outfile);
+		fwrite(&audio_data_length, 1, sizeof(uint32_t), outfile);
 		fwrite(audio_data, 1, audio_data_length, outfile);
 #endif
 
@@ -603,7 +603,7 @@ namespace caspar { namespace replay {
 		struct jpeg_error_mgr jerr;
 
 		JSAMPROW row_pointer[1];
-		size_t row_stride;
+		uint32_t row_stride;
 
 		cinfo.err = jpeg_std_error(&jerr);
 		jpeg_create_compress(&cinfo);

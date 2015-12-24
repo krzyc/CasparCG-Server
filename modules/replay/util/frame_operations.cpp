@@ -163,10 +163,10 @@ l1:
 	}
 #pragma warning(default:4309)
 
-	void split_frame_to_fields(const mmx_uint8_t* src, mmx_uint8_t* dst1, mmx_uint8_t* dst2, size_t width, size_t height, size_t stride)
+	void split_frame_to_fields(const mmx_uint8_t* src, mmx_uint8_t* dst1, mmx_uint8_t* dst2, uint32_t width, uint32_t height, uint32_t stride)
 	{
-		size_t full_row = width * stride;
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, height/2), [=](const tbb::blocked_range<size_t>& r)
+		uint32_t full_row = width * stride;
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, height/2), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); ++i)
 			{
@@ -176,10 +176,10 @@ l1:
 		});
 	}
 
-	void interlace_fields(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride)
+	void interlace_fields(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride)
 	{
-		size_t full_row = width * stride;
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, height/2), [=](const tbb::blocked_range<size_t>& r)
+		uint32_t full_row = width * stride;
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, height/2), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); ++i)
 			{
@@ -189,10 +189,10 @@ l1:
 		});
 	}
 
-	void interlace_frames(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride)
+	void interlace_frames(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride)
 	{
-		size_t full_row = width * stride;
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, height/2), [=](const tbb::blocked_range<size_t>& r)
+		uint32_t full_row = width * stride;
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, height/2), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); ++i)
 			{
@@ -202,10 +202,10 @@ l1:
 		});
 	}
 	
-	void field_double(const mmx_uint8_t* src, mmx_uint8_t* dst, size_t width, size_t height, size_t stride)
+	void field_double(const mmx_uint8_t* src, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride)
 	{
-		size_t full_row = width * stride;
-		/* tbb::parallel_for(tbb::blocked_range<size_t>(0, height/2), [=](const tbb::blocked_range<size_t>& r)
+		uint32_t full_row = width * stride;
+		/* tbb::parallel_for(tbb::blocked_range<uint32_t>(0, height/2), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); ++i)
 			{
@@ -213,7 +213,7 @@ l1:
 				memcpy((dst + (i * 2 + 1) * full_row), (src + i  * full_row), full_row);
 			}
 		}); */
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, height/2 - 1), [=](const tbb::blocked_range<size_t>& r)
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, height/2 - 1), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); ++i)
 			{
@@ -229,12 +229,12 @@ l1:
 #pragma warning(disable:4309 4244)
 	// max level is 63
 	// level = 63 means 100% src1, level = 0 means 100% src2
-	void blend_images(const mmx_uint8_t* src1, mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride, uint8_t level)
+	void blend_images(const mmx_uint8_t* src1, mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride, uint8_t level)
 	{
 		uint32_t full_size = width * height * stride;
 		uint16_t level_16 = (uint16_t)level;
 #ifndef OPTIMIZE_BLEND_IMAGES
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, full_size), [=](const tbb::blocked_range<size_t>& r)
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, full_size), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); i++)
 			{
@@ -299,10 +299,10 @@ l1:
 #endif
 	}
 
-	void black_frame(mmx_uint8_t* dst, size_t width, size_t height, size_t stride)
+	void black_frame(mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride)
 	{
 		uint32_t full_size = width * height;
-		tbb::parallel_for(tbb::blocked_range<size_t>(0, full_size), [=](const tbb::blocked_range<size_t>& r)
+		tbb::parallel_for(tbb::blocked_range<uint32_t>(0, full_size), [=](const tbb::blocked_range<uint32_t>& r)
 		{
 			for (auto i = r.begin(); i != r.end(); i++)
 			{

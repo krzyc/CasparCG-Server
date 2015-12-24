@@ -30,10 +30,10 @@ typedef uint8_t mmx_uint8_t;
 namespace caspar { namespace replay {
 void bgra_to_rgb(const mmx_uint8_t* src, mmx_uint8_t* dst, int line_width);
 void rgb_to_bgra(const mmx_uint8_t* src, mmx_uint8_t* dst, int line_width);
-void split_frame_to_fields(const mmx_uint8_t* src, mmx_uint8_t* dst1, mmx_uint8_t* dst2, size_t width, size_t height, size_t stride);
-void interlace_fields(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
-void interlace_frames(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
-void field_double(const mmx_uint8_t* src, mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
-void blend_images(const mmx_uint8_t* src1, mmx_uint8_t* src2, mmx_uint8_t* dst, size_t width, size_t height, size_t stride, uint8_t level);
-void black_frame(mmx_uint8_t* dst, size_t width, size_t height, size_t stride);
+void split_frame_to_fields(const mmx_uint8_t* src, mmx_uint8_t* dst1, mmx_uint8_t* dst2, uint32_t width, uint32_t height, uint32_t stride);
+void interlace_fields(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride);
+void interlace_frames(const mmx_uint8_t* src1, const mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride);
+void field_double(const mmx_uint8_t* src, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride);
+void blend_images(const mmx_uint8_t* src1, mmx_uint8_t* src2, mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride, uint8_t level);
+void black_frame(mmx_uint8_t* dst, uint32_t width, uint32_t height, uint32_t stride);
 }}

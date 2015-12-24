@@ -87,7 +87,7 @@ struct replay_producer : public core::frame_producer
 	tbb::atomic<uint64_t>					result_framenum_;
 	tbb::atomic<int>						runstate_;
 	uint8_t*								leftovers_;
-	size_t									leftovers_size_;
+	uint32_t								leftovers_size_;
 	int										leftovers_duration_;
 	bool									interlaced_;
 	int										audio_;
@@ -241,8 +241,8 @@ struct replay_producer : public core::frame_producer
 
 #pragma warning(default:4244)
 	
-	caspar::safe_ptr<core::basic_frame> make_frame(uint8_t* frame_data, size_t size, size_t width, size_t height, bool drop_first_line,
-		const int32_t* audio_data = 0, size_t audio_data_length = 0)
+	caspar::safe_ptr<core::basic_frame> make_frame(uint8_t* frame_data, uint32_t size, uint32_t width, uint32_t height, bool drop_first_line,
+		const int32_t* audio_data = 0, uint32_t audio_data_length = 0)
 	{
 		core::pixel_format_desc desc;
 		desc.pix_fmt = core::pixel_format::rgb;
@@ -254,7 +254,7 @@ struct replay_producer : public core::frame_producer
 		}
 		else
 		{
-			size_t line = width * 3;
+			uint32_t line = width * 3;
 			std::copy_n(frame_data, size - line, frame->image_data().begin() + line);
 		}
 
@@ -476,7 +476,7 @@ struct replay_producer : public core::frame_producer
 #pragma warning(disable:4244)
 	bool slow_motion_playback(uint8_t* result)
 	{
-		size_t frame_size = index_header_->width * index_header_->height * 3;
+		uint32_t frame_size = index_header_->width * index_header_->height * 3;
 		int filled = 0;
 		uint8_t* buffer1 = new uint8_t[frame_size];
 		uint8_t* buffer2 = new uint8_t[frame_size];
@@ -521,9 +521,9 @@ struct replay_producer : public core::frame_producer
 			seek_frame(in_file_, field_pos, FILE_BEGIN);
 
 			mmx_uint8_t* field = NULL;
-			size_t field_width;
-			size_t field_height;
-			size_t audio_size;
+			uint32_t field_width;
+			uint32_t field_height;
+			uint32_t audio_size;
 			int32_t* audio = NULL;
 			(void) read_frame(in_file_, &field_width, &field_height, &field, &audio_size, &audio);
 
@@ -613,7 +613,7 @@ struct replay_producer : public core::frame_producer
 		// IF trickplay is possible 0 - 1.0 || 1.0 - 2.0 || 2.0 - 3.0
 		else if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 2.0f)) || ((abs_speed_ > 2.0f) && (abs_speed_ < 3.0f)))
 		{
-			size_t frame_size = index_header_->width * index_header_->height * 3;
+			uint32_t frame_size = index_header_->width * index_header_->height * 3;
 			uint8_t* field1 = new uint8_t[frame_size];
 			uint8_t* field2 = NULL;
 			uint8_t* full_frame = NULL;
@@ -688,11 +688,11 @@ struct replay_producer : public core::frame_producer
 		int32_t* audio1 = NULL;
 		int32_t* audio2 = NULL;
 		int32_t* audio = NULL;
-		size_t field1_width;
-		size_t field1_height;
-		size_t audio1_size;
-		size_t audio2_size;
-		size_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1, &audio1_size, &audio1);
+		uint32_t field1_width;
+		uint32_t field1_height;
+		uint32_t audio1_size;
+		uint32_t audio2_size;
+		uint32_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1, &audio1_size, &audio1);
 
 		if (!interlaced_)
 		{
@@ -724,7 +724,7 @@ struct replay_producer : public core::frame_producer
 
 		seek_frame(in_file_, field2_pos, FILE_BEGIN);
 
-		size_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
+		uint32_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
 
 		audio = new int32_t[(audio1_size + audio2_size)/4];
 		memcpy(audio, audio1, audio1_size);
