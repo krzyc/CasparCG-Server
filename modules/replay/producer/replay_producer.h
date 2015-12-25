@@ -24,20 +24,29 @@
 
 #pragma once
 
+#ifndef CASPAR_2_1
 #include <common/memory/safe_ptr.h>
+#endif
+
+#include <core/producer/frame_producer.h>
 
 #define		REPLAY_PRODUCER_BUFFER_SIZE		3
 
-namespace caspar { 
+namespace caspar {
 
+#ifndef CASPAR_2_1
 namespace core {
 	struct frame_producer;
 	struct frame_factory;
 	class parameters;
 }
+#endif
 
 namespace replay {
-
-safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params);
-
+#ifndef CASPAR_2_1
+	safe_ptr<core::frame_producer> create_producer(const safe_ptr<core::frame_factory>& frame_factory, const core::parameters& params);
+#else
+	void describe_producer(core::help_sink& sink, const core::help_repository& repo);
+	spl::shared_ptr<core::frame_producer> create_producer(const core::frame_producer_dependencies& dependencies, const std::vector<std::wstring>& params);
+#endif
 }}

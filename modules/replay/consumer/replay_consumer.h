@@ -24,17 +24,31 @@
 
 #pragma once
 
+#ifndef CASPAR_2_1
 #include <common/memory/safe_ptr.h>
+#else
+#include <common/memory.h>
+#include <core/fwd.h>
+#include <boost/property_tree/ptree.hpp>
+#include <vector>
+#endif
 
-namespace caspar { 
+namespace caspar {
 
+#ifndef CASPAR_2_1
 namespace core {
 	struct frame_consumer;
 	class parameters;
 }
+#endif
 
-namespace replay {
-	
-safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params);
+	namespace replay {
 
-}} 
+#ifndef CASPAR_2_1
+		safe_ptr<core::frame_consumer> create_consumer(const core::parameters& params);
+#else
+		void describe_consumer(core::help_sink& sink, const core::help_repository& repo);
+		spl::shared_ptr<core::frame_consumer> create_consumer(
+			const std::vector<std::wstring>& params, core::interaction_sink*);
+#endif
+}}

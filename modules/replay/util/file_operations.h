@@ -28,6 +28,7 @@
 #include <core/video_format.h>
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <Windows.h>
 // comment below line to use STDIO file operations on Windows
 #define REPLAY_IO_WINAPI
@@ -73,7 +74,11 @@ namespace caspar { namespace replay {
 		uint32_t						width;
 		uint32_t						height;
 		double							fps;
+#ifndef CASPAR_2_1
 		caspar::core::field_mode::type	field_mode;
+#else
+		caspar::core::field_mode		field_mode;
+#endif
 		boost::posix_time::ptime		begin_timecode;
 	};
 

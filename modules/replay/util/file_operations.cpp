@@ -29,11 +29,16 @@
 #include <setjmp.h>
 
 #include <common/env.h>
+#ifndef CASPAR_2_1
 #include <common/log/log.h>
 #include <common/utility/string.h>
 #include <common/concurrency/future_util.h>
+#endif
 #include <common/diagnostics/graph.h>
 #include <core/consumer/frame_consumer.h>
+#ifndef CASPAR_2_1
+#include <core/mixer/read_frame.h>
+#endif
 
 #define VIDEO_OUTPUT_BUF_SIZE		4096
 #define VIDEO_INPUT_BUF_SIZE		4096
@@ -308,10 +313,12 @@ namespace caspar { namespace replay {
 #endif
 	}
 
+#pragma warning(disable: 4324)
 	struct error_mgr {
 		struct jpeg_error_mgr pub;	/* "public" fields */
 		jmp_buf setjmp_buffer;	/* for return to caller */
 	}; 
+#pragma warning(default: 4324)
 
 	typedef struct error_mgr * error_ptr;
 
@@ -379,8 +386,8 @@ namespace caspar { namespace replay {
 			   */
 			}
 
-			src->pub.next_input_byte += (uint32_t)num_bytes;
-			src->pub.bytes_in_buffer -= (uint32_t)num_bytes;
+			src->pub.next_input_byte += (uint32_t) num_bytes;
+			src->pub.bytes_in_buffer -= (uint32_t) num_bytes;
 		}
 	}
 
@@ -435,7 +442,7 @@ namespace caspar { namespace replay {
 	{
 		dest_ptr dest = (dest_ptr) cinfo->dest;
 
-		uint32_t datacount = VIDEO_OUTPUT_BUF_SIZE - dest->pub.free_in_buffer;
+		uint32_t datacount = VIDEO_OUTPUT_BUF_SIZE - (uint32_t)dest->pub.free_in_buffer;
 
 		// write any data remaining in the buffer
 
@@ -525,7 +532,7 @@ namespace caspar { namespace replay {
 			read = 0;
 			(*audio) = new int32_t[audioBufSize/4];
 #ifdef REPLAY_IO_WINAPI
-			ReadFile(infile, *audio, audioBufSize, (DWORD*)&read, FALSE);
+			ReadFile(infile, *audio, (DWORD)audioBufSize, (DWORD*)&read, FALSE);
 #else
 			read = fread(*audio, 1, audioBufSize, infile);
 #endif
