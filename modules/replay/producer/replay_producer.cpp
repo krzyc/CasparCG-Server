@@ -213,6 +213,7 @@ struct replay_producer : public core::frame_producer_base
 						leftovers_ = NULL;
 						leftovers_duration_ = 0;
 						leftovers_audio_ = NULL;
+						leftovers_audio_size_ = 0;
 
 						seeked_ = false;
 
@@ -607,11 +608,9 @@ struct replay_producer : public core::frame_producer_base
 				delete buffer1;
 				delete buffer2;
 				if (*result_audio != NULL)
-				{
 					delete *result_audio;
-					*result_audio = NULL;
-					*result_audio_size = 0;
-				}
+				*result_audio = NULL;
+				*result_audio_size = 0;
 
 				return false;
 			}
@@ -812,6 +811,10 @@ struct replay_producer : public core::frame_producer_base
 		{
 			delete leftovers_;
 			leftovers_ = NULL;
+			if (leftovers_audio_ != NULL)
+				delete leftovers_audio_;
+			leftovers_audio_ = NULL;
+			leftovers_audio_size_ = 0;
 		}
 
 		// ELSE
