@@ -105,8 +105,9 @@ struct replay_producer : public core::frame_producer_base
 	tbb::atomic<uint64_t>					result_framenum_;
 	tbb::atomic<int>						runstate_;
 	uint8_t*								leftovers_;
-	uint32_t									leftovers_size_;
 	int										leftovers_duration_;
+	int32_t*								leftovers_audio_;
+	uint32_t								leftovers_audio_size_;
 	bool									interlaced_;
 	int										audio_;
 	float									speed_;
@@ -211,6 +212,7 @@ struct replay_producer : public core::frame_producer_base
 						
 						leftovers_ = NULL;
 						leftovers_duration_ = 0;
+						leftovers_audio_ = NULL;
 
 						seeked_ = false;
 
@@ -356,7 +358,7 @@ struct replay_producer : public core::frame_producer_base
 #else
 	std::future<std::wstring> call(const std::vector<std::wstring>& param) override
 	{
-		return make_ready_future(std::move(do_call((const std::wstring&)param)));
+		return make_ready_future(std::move(do_call(boost::algorithm::join(param, L" "))));
 	}
 #endif
 
@@ -558,7 +560,7 @@ struct replay_producer : public core::frame_producer_base
 	}
 
 #pragma warning(disable:4244)
-	bool slow_motion_playback(uint8_t* result)
+	bool slow_motion_playback(uint8_t* result, int32_t** result_audio, uint32_t* result_audio_size)
 	{
 		uint32_t frame_size = index_header_->width * index_header_->height * 3;
 		int filled = 0;
@@ -571,7 +573,11 @@ struct replay_producer : public core::frame_producer_base
 		{
 			// result is in buffer2
 			blend_images(leftovers_, buffer1, buffer2, index_header_->width, index_header_->height, 3, 64);
-				
+			
+			*result_audio = new int32_t[leftovers_audio_size_ / 4];
+			*result_audio_size = leftovers_audio_size_;
+			std::copy_n(leftovers_audio_, leftovers_audio_size_ / 4, *result_audio);
+
 			filled += leftovers_duration_;
 			if (filled > 64)
 			{
@@ -582,6 +588,10 @@ struct replay_producer : public core::frame_producer_base
 				delete leftovers_;
 				leftovers_ = NULL;
 				leftovers_duration_ = 0;
+				if (leftovers_audio_ != NULL)
+					delete leftovers_audio_;
+				leftovers_audio_ = NULL;
+				leftovers_audio_size_ = 0;
 			}
 		}
 
@@ -596,6 +606,12 @@ struct replay_producer : public core::frame_producer_base
 
 				delete buffer1;
 				delete buffer2;
+				if (*result_audio != NULL)
+				{
+					delete *result_audio;
+					*result_audio = NULL;
+					*result_audio_size = 0;
+				}
 
 				return false;
 			}
@@ -632,11 +648,21 @@ struct replay_producer : public core::frame_producer_base
 			}
 			blend_images(field, buffer2, buffer1, index_header_->width, index_header_->height, 3, level);
 
+			if (*result_audio != NULL)
+				delete *result_audio;
+			*result_audio = new int32_t[audio_size / 4];
+			*result_audio_size = audio_size;
+			std::copy_n(audio, audio_size / 4, *result_audio);
+
 			if (leftovers_ != NULL)
 				delete leftovers_;
+			if (leftovers_audio_ != NULL)
+				delete leftovers_audio_;
 
 			// Store the last frame as leftover
 			leftovers_ = field;
+			leftovers_audio_ = audio;
+			leftovers_audio_size_ = audio_size;
 
 			filled += frame_duration;
 
@@ -718,6 +744,10 @@ struct replay_producer : public core::frame_producer_base
 			uint32_t frame_size = index_header_->width * index_header_->height * 3;
 			uint8_t* field1 = new uint8_t[frame_size];
 			uint8_t* field2 = NULL;
+			int32_t* audio1 = NULL;
+			uint32_t audio1_size = 0;
+			int32_t* audio2 = NULL;
+			uint32_t audio2_size = 0;
 			uint8_t* full_frame = NULL;
 
 			if (interlaced_)
@@ -726,7 +756,7 @@ struct replay_producer : public core::frame_producer_base
 				full_frame = new uint8_t[frame_size];
 			}
 
-			if (!slow_motion_playback(field1))
+			if (!slow_motion_playback(field1, &audio1, &audio1_size))
 			{
 				return std::make_pair(frame_, framenum_);
 			}
@@ -734,29 +764,44 @@ struct replay_producer : public core::frame_producer_base
 			{
 				if (!interlaced_)
 				{
-					make_frame(field1, frame_size, index_header_->width, index_header_->height, false);
+					make_frame(field1, frame_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
 					delete field1;
+					if (audio1 != NULL)
+						delete audio1;
 
 					return std::make_pair(frame_, framenum_);
 				}
 
-				if (!slow_motion_playback(field2))
+				if (!slow_motion_playback(field2, &audio2, &audio2_size))
 				{
-					make_frame(field1, frame_size, index_header_->width, index_header_->height, false);
+					make_frame(field1, frame_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
 					delete field1;
 					delete field2;
 					delete full_frame;
+					if (audio1 != NULL)
+						delete audio1;
+					if (audio2 != NULL)
+						delete audio2;
 
 					return std::make_pair(frame_, framenum_);
 				}
 				else
 				{
+					int32_t* audio = new int32_t[(audio1_size + audio2_size) / 4];
+					std::copy_n(audio1, audio1_size / 4, audio);
+					std::copy_n(audio2, audio2_size / 4, audio + (audio1_size / 4));
+
 					interlace_frames(field1, field2, full_frame, index_header_->width, index_header_->height, 3);
-					make_frame(full_frame, frame_size, index_header_->width, index_header_->height, false);
+					make_frame(full_frame, frame_size, index_header_->width, index_header_->height, false, audio, audio1_size + audio2_size);
 
 					delete field1;
 					delete field2;
 					delete full_frame;
+					delete audio;
+					if (audio1 != NULL)
+						delete audio1;
+					if (audio2 != NULL)
+						delete audio2;
 
 					return std::make_pair(frame_, framenum_);
 				}
