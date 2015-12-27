@@ -80,11 +80,12 @@ struct replay_producer : public core::frame_producer_base
 	safe_ptr<core::basic_frame>				last_frame_;
 	std::queue<std::pair<safe_ptr<core::basic_frame>, uint64_t>>	frame_buffer_;
 #else
-	core::draw_frame				frame_;
-	core::draw_frame				last_frame_;
+	core::draw_frame						frame_;
+	core::draw_frame						last_frame_;
 	std::queue<std::pair<core::draw_frame, uint64_t>>	frame_buffer_;
-	core::constraints				constraints_;
+	core::constraints						constraints_;
 #endif
+	bool									frame_stable_;
 	mjpeg_file_handle						in_file_;
 	mjpeg_file_handle						in_idx_file_;
 
@@ -142,8 +143,8 @@ struct replay_producer : public core::frame_producer_base
 			const spl::shared_ptr<core::frame_factory>& frame_factory,
 			const std::wstring& filename,
 			const int sign,
-			const long long start_frame,
-			const long long last_frame,
+			const unsigned long long start_frame,
+			const unsigned long long last_frame,
 			const float start_speed,
 			const int audio = 0)
 		: filename_(filename)
@@ -219,13 +220,10 @@ struct replay_producer : public core::frame_producer_base
 
 						if (start_frame > 0)
 						{
-							long long frame_pos;
 							if (interlaced_)
-								frame_pos = (long long)(start_frame * 2.0);
+								seek(start_frame * 2, sign);
 							else
-								frame_pos = (long long)start_frame;
-				
-							seek(frame_pos, sign);
+								seek(start_frame, sign);
 						}
 
 						if (last_frame > 0)
@@ -250,6 +248,10 @@ struct replay_producer : public core::frame_producer_base
 										try
 										{
 											boost::timer frame_timer;
+											real_last_framenum_ = length_index(in_idx_file_);
+											// in interlaced mode make sure that number of fields is even
+											if (interlaced_ && !(real_last_framenum_ & 1))
+												real_last_framenum_--;
 											auto frame_pair = render_frame(0);
 											frame_buffer_.push(frame_pair);
 											update_diag(frame_timer.elapsed()*0.5*index_header_->fps);
@@ -403,14 +405,11 @@ struct replay_producer : public core::frame_producer_base
 			}
 			if(!what["VALUE"].str().empty())
 			{
-				double position = boost::lexical_cast<double>(what["VALUE"].str());
-				long long frame_pos = 0;
+				unsigned long long position = boost::lexical_cast<unsigned long long>(what["VALUE"].str());
 				if (interlaced_)
-					frame_pos = (long long)(position * 2.0);
+					seek(position * 2, sign);
 				else
-					frame_pos = (long long)position;
-				
-				seek(frame_pos, sign);
+					seek(position, sign);
 			}
 			return L"";
 		}
@@ -443,41 +442,38 @@ struct replay_producer : public core::frame_producer_base
 		BOOST_THROW_EXCEPTION(invalid_argument());
 	}
 
-	void seek(long long frame_pos, int sign)
+	void seek(unsigned long long frame_pos, int sign)
 	{
-		real_last_framenum_ = length_index(in_idx_file_);
 		if (sign == 0)
 		{
-			framenum_ = frame_pos;
-			//seek_index(in_idx_file_, frame_pos, FILE_BEGIN);
+			if (frame_pos > real_last_framenum_)
+				framenum_ = real_last_framenum_;
+			else
+				framenum_ = frame_pos;
 		}
 		else if (sign == -2)
 		{
-			framenum_ = real_last_framenum_ - frame_pos - 4;
-			//seek_index(in_idx_file_, framenum_, FILE_BEGIN);
-		}
-		else
-		{
-			if (((long long)framenum_ + (sign * frame_pos)) > 0)
-			{
-				//framenum_ = framenum_ + (sign * (((sign < 0) && interlaced_) ? frame_pos + 2 : frame_pos + 1));
-				framenum_ = framenum_ + (sign * ((sign < 0 ? frame_pos + 1 : frame_pos)));
-			}
-			else
-			{
+			if (real_last_framenum_ < frame_pos - 4)
 				framenum_ = 0;
-			}
-			/*if (((long long)framenum_ + (sign * frame_pos)) > real_last_framenum_)
-			{
-				framenum_ = real_last_framenum_ - 4;
-			}
-			seek_index(in_idx_file_, framenum_, FILE_BEGIN);*/
+			else
+				framenum_ = real_last_framenum_ - frame_pos - 4;
 		}
-		if ((framenum_ /*+ (sign * frame_pos)*/) > real_last_framenum_)
+		else if (sign == -1)
 		{
-			framenum_ = real_last_framenum_ - 4;
+			if (framenum_ < frame_pos)
+				framenum_ = 0;
+			else
+				framenum_ -= frame_pos;
 		}
-		seek_index(in_idx_file_, framenum_, FILE_BEGIN);
+		else if (sign == 1)
+		{
+			if (framenum_ + frame_pos > real_last_framenum_)
+				framenum_ = real_last_framenum_;
+			else
+				framenum_ += frame_pos;
+		}
+		if (seek_index(in_idx_file_, framenum_, FILE_BEGIN))
+			CASPAR_LOG(error) << L" seek_index@seek " << framenum_;
 		first_framenum_ = framenum_;
 		seeked_ = true;
 	}
@@ -514,35 +510,47 @@ struct replay_producer : public core::frame_producer_base
 
 	void move_to_next_frame()
 	{
-		if ((reverse_) && (framenum_ > 0))
+		int frame_multiplier = frame_multiplier_ > 1 ? frame_multiplier_ : 1;
+		bool seek_needed = 0;
+		if (reverse_)
 		{
-			framenum_ -= (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
-			seek_index(in_idx_file_, -1 - (frame_multiplier_ > 1 ? frame_multiplier_ : 1), FILE_CURRENT);
-		}
-		else if (framenum_ >= (real_last_framenum_ = length_index(in_idx_file_)))
-		{
-			seek_index(in_idx_file_, -(frame_multiplier_ > 1 ? frame_multiplier_ : 1), FILE_CURRENT);
+			if (framenum_ < frame_multiplier)
+				framenum_ = 0;
+			else
+				framenum_ -= frame_multiplier;
+			seek_needed = 1;
 		}
 		else
 		{
-			framenum_ += (frame_multiplier_ > 1 ? frame_multiplier_ : 1);
-			if (frame_multiplier_ > 1)
+			if (framenum_ + frame_multiplier >= real_last_framenum_)
 			{
-				seek_index(in_idx_file_, frame_multiplier_ - 1, FILE_CURRENT);
+				framenum_ = real_last_framenum_;
+				seek_needed = 1;
+			}
+			else
+			{
+				framenum_ += frame_multiplier;
+				if (frame_multiplier > 1)
+					seek_needed = 1;
 			}
 		}
+		if (seek_needed && seek_index(in_idx_file_, framenum_, FILE_BEGIN))
+			CASPAR_LOG(error) << L" move_to_next_frame() seek_index(in_idx_file_, " << framenum_ << ", FILE_BEGIN)";
 	}
 
 	void sync_to_frame()
 	{
-		if (index_header_->field_mode != caspar::core::field_mode::progressive)
+		if (interlaced_ && framenum_ % 2 != 0)
 		{
-			if (
-			   ((framenum_ % 2 != 0))
-			)
+			//CASPAR_LOG(warning) << L" Frame number was " << framenum_ << L", syncing to First Field";
+			if (framenum_ + 1 >= real_last_framenum_)
 			{
-				//CASPAR_LOG(warning) << L" Frame number was " << framenum_ << L", syncing to First Field";
-				(void) read_index(in_idx_file_);
+				seek_index(in_idx_file_, -1, FILE_CURRENT);
+				framenum_--;
+			}
+			else
+			{
+				(void)read_index(in_idx_file_);
 				framenum_++;
 			}
 		}
@@ -692,19 +700,17 @@ struct replay_producer : public core::frame_producer_base
 	std::pair<core::draw_frame, uint64_t> render_frame(int hints)
 #endif
 	{
-		// if length is defined
-		if (last_framenum_ > 0)
+		int eof = 0;
+		if (!seeked_ && (
+			(speed_ == 0.0f) ||                                                  // paused
+			(reverse_ && framenum_ == 0) ||                                      // front
+			(!reverse_ && framenum_ >= real_last_framenum_) ||                   // end
+			(last_framenum_ > 0 && reverse_ && first_framenum_ >= framenum_) ||  // user defined front
+			(last_framenum_ > 0 && !reverse_ && last_framenum_ <= framenum_)))   // user defined end
 		{
-			if (last_framenum_ <= framenum_ && speed_ > 0.0f)
-			{
-				//frame_ = core::basic_frame::eof(); // Uncomment this to keep a steady frame after the length has run through
-#ifndef CASPAR_2_1
-				return std::make_pair(disable_audio(frame_), framenum_);
-#else
-				return std::make_pair(core::draw_frame::still(frame_), framenum_);
-#endif
-			}
-			if (first_framenum_ >= framenum_ && speed_ < 0.0f)
+			eof = 1;
+			//frame_ = core::basic_frame::eof(); // Uncomment this to keep a steady frame after the length has run through
+			if (frame_stable_)
 			{
 #ifndef CASPAR_2_1
 				return std::make_pair(disable_audio(frame_), framenum_);
@@ -713,32 +719,10 @@ struct replay_producer : public core::frame_producer_base
 #endif
 			}
 		}
-		if (framenum_ == 0 && speed_ < 0.0f)
-		{
-#ifndef CASPAR_2_1
-			return std::make_pair(disable_audio(frame_), framenum_);
-#else
-			return std::make_pair(core::draw_frame::still(frame_), framenum_);
-#endif
-		}
-		// IF is paused
-		if (speed_ == 0.0f) 
-		{
-			if (!seeked_)
-			{
-#ifndef CASPAR_2_1
-				return std::make_pair(disable_audio(frame_), framenum_);
-#else
-				return std::make_pair(core::draw_frame::still(frame_), framenum_);
-#endif
-			}
-			else
-			{
-				seeked_ = false;
-			}
-		}
+		seeked_ = false;
+
 		// IF trickplay is possible 0 - 1.0 || 1.0 - 2.0 || 2.0 - 3.0
-		else if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 2.0f)) || ((abs_speed_ > 2.0f) && (abs_speed_ < 3.0f)))
+		if (((abs_speed_ > 0.0f) && (abs_speed_ < 1.0f)) || ((abs_speed_ > 1.0f) && (abs_speed_ < 2.0f)) || ((abs_speed_ > 2.0f) && (abs_speed_ < 3.0f)))
 		{
 			uint32_t frame_size = index_header_->width * index_header_->height * 3;
 			uint8_t* field1 = new uint8_t[frame_size];
@@ -764,6 +748,7 @@ struct replay_producer : public core::frame_producer_base
 				if (!interlaced_)
 				{
 					make_frame(field1, frame_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
+					frame_stable_ = true;
 					delete field1;
 					if (audio1 != NULL)
 						delete audio1;
@@ -774,6 +759,7 @@ struct replay_producer : public core::frame_producer_base
 				if (!slow_motion_playback(field2, &audio2, &audio2_size))
 				{
 					make_frame(field1, frame_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
+					frame_stable_ = true;
 					delete field1;
 					delete field2;
 					delete full_frame;
@@ -792,7 +778,7 @@ struct replay_producer : public core::frame_producer_base
 
 					interlace_frames(field1, field2, full_frame, index_header_->width, index_header_->height, 3);
 					make_frame(full_frame, frame_size, index_header_->width, index_header_->height, false, audio, audio1_size + audio2_size);
-
+					frame_stable_ = false;
 					delete field1;
 					delete field2;
 					delete full_frame;
@@ -847,6 +833,7 @@ struct replay_producer : public core::frame_producer_base
 		if (!interlaced_)
 		{
 			make_frame(field1, field1_size, index_header_->width, index_header_->height, false, audio1, audio1_size);
+			frame_stable_ = true;
 
 			delete field1;
 			delete audio1;
@@ -854,12 +841,13 @@ struct replay_producer : public core::frame_producer_base
 			return std::make_pair(frame_, framenum_);
 		}
 
-		if ((speed_ == 0.0f) && (interlaced_))
+		if ((speed_ == 0.0f || eof) && interlaced_)
 		{
 			mmx_uint8_t* full_frame1 = new mmx_uint8_t[field1_size * 2];
 
 			field_double(field1, full_frame1, index_header_->width, index_header_->height, 3);
 			make_frame(full_frame1, field1_size * 2, index_header_->width, index_header_->height, false);
+			frame_stable_ = true;
 
 			delete field1;
 			delete audio1;
@@ -887,6 +875,7 @@ struct replay_producer : public core::frame_producer_base
 		proper_interlace(field1, field2, full_frame);
 		
 		make_frame(full_frame, field1_size + field2_size, index_header_->width, index_header_->height, false, audio, audio1_size + audio2_size);
+		frame_stable_ = false;
 
 		if (field1 != NULL)
 			delete field1;
@@ -1050,8 +1039,8 @@ spl::shared_ptr<core::frame_producer> create_producer(const core::frame_producer
 
 	int sign = 0;
 	int audio = 0;
-	long long start_frame = 0;
-	long long last_frame = 0;
+	unsigned long long start_frame = 0;
+	unsigned long long last_frame = 0;
 	float start_speed = 1.0f;
 	if (params.size() >= 3)
 	{
@@ -1074,9 +1063,9 @@ spl::shared_ptr<core::frame_producer> create_producer(const core::frame_producer
 					if(!what["VALUE"].str().empty())
 					{
 #ifndef CASPAR_2_1
-						start_frame = boost::lexical_cast<long long>(narrow(what["VALUE"].str()).c_str());
+						start_frame = boost::lexical_cast<unsigned long long>(narrow(what["VALUE"].str()).c_str());
 #else
-						start_frame = boost::lexical_cast<long long>(what["VALUE"].str());
+						start_frame = boost::lexical_cast<unsigned long long>(what["VALUE"].str());
 #endif
 					}
 				}
@@ -1101,7 +1090,7 @@ spl::shared_ptr<core::frame_producer> create_producer(const core::frame_producer
 				{
 					if (!what["VALUE"].str().empty())
 					{
-						last_frame = boost::lexical_cast<long long>(what["VALUE"].str());
+						last_frame = boost::lexical_cast<unsigned long long>(what["VALUE"].str());
 					}
 				}
 			}
