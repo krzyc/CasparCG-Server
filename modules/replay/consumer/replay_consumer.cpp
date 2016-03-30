@@ -80,8 +80,11 @@ struct replay_consumer : public core::frame_consumer
 
 	int										audio_channels_;
 
+#ifndef CASPAR_2_1
 	tbb::atomic<int64_t>					current_encoding_delay_;
-
+#else
+	int64_t							current_encoding_delay_;
+#endif
 
 #define REPLAY_FRAME_BUFFER					32
 #define REPLAY_JPEG_QUALITY					90
@@ -121,18 +124,18 @@ public:
 	{
 		format_desc_ = format_desc;
 
-		output_file_ = safe_fopen((env::media_folder() + filename_ + L".MAV").c_str(), GENERIC_WRITE, FILE_SHARE_READ);
+		output_file_ = safe_fopen((env::media_folder() + filename_ + L".mav").c_str(), GENERIC_WRITE, FILE_SHARE_READ);
 		if (output_file_ == NULL)
 		{
-			CASPAR_LOG(error) << print() << L" Can't open file " << filename_ << L".MAV for writing";
+			CASPAR_LOG(error) << print() << L" Can't open file " << filename_ << L".mav for writing";
 			return;
 		}
 		else
 		{
-			output_index_file_ = safe_fopen((env::media_folder() + filename_ + L".IDX").c_str(), GENERIC_WRITE, FILE_SHARE_READ);
+			output_index_file_ = safe_fopen((env::media_folder() + filename_ + L".idx").c_str(), GENERIC_WRITE, FILE_SHARE_READ);
 			if (output_index_file_ == NULL)
 			{
-				CASPAR_LOG(error) << print() << L" Can't open index file " << filename_ << L".IDX for writing";
+				CASPAR_LOG(error) << print() << L" Can't open index file " << filename_ << L".idx for writing";
 				safe_fclose(output_file_);
 				return;
 			}

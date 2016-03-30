@@ -89,10 +89,17 @@ namespace caspar { namespace replay {
 			return NULL;
 		}
 #else
+#ifndef CASPAR_2_1
 		if (mode == GENERIC_WRITE)
 			return fopen64(utf8util::UTF8FromUTF16(filename).c_str(), "wb");
 		else
 			return fopen64(utf8util::UTF8FromUTF16(filename).c_str(), "rb");
+#else
+                if (mode == GENERIC_WRITE)
+                        return fopen64(u8(filename).c_str(), "wb");
+                else
+                        return fopen64(u8(filename).c_str(), "rb");
+#endif
 #endif
 	}
 #pragma warning(default:4706)

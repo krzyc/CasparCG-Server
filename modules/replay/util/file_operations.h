@@ -35,8 +35,16 @@
 #endif
 
 #ifndef REPLAY_IO_WINAPI
+
+#ifndef CASPAR_2_1
 #include "common/utility/utf8conv.h"
+#else
+#include "common/utf.h"
+#endif
+
 #define _FILE_OFFSET_BITS  64
+
+#ifdef _WIN32
 #ifndef fopen64
 #define fopen64 fopen
 #endif
@@ -46,6 +54,17 @@
 #ifndef ftell64
 #define ftell64 _ftelli64
 #endif
+#endif
+
+#ifdef __x86_64
+#ifndef fseek64
+#define fseek64 fseek
+#endif
+#ifndef ftell64
+#define ftell64 ftell
+#endif
+#endif
+
 #ifndef FILE_CURRENT
 #define FILE_CURRENT SEEK_CUR
 #endif
@@ -53,10 +72,16 @@
 #define FILE_BEGIN SEEK_SET
 #endif
 #ifndef GENERIC_READ
-#define GENERIC_READ                     0x80000000
+#define GENERIC_READ 0x80000000
 #endif
 #ifndef GENERIC_WRITE
-#define GENERIC_WRITE                    0x40000000
+#define GENERIC_WRITE 0x40000000
+#endif
+#ifndef FILE_SHARE_READ
+#define FILE_SHARE_READ 0x00000001
+#endif
+#ifndef FILE_SHARE_WRITE
+#define FILE_SHARE_WRITE 0x00000002
 #endif
 #endif
 

@@ -34,13 +34,13 @@
 #include <boost/assign.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include <boost/thread.hpp>
-#include <boost/thread/locks.hpp>
+//#include <boost/thread.hpp>
+//#include <boost/thread/locks.hpp>
 #include <boost/regex.hpp>
 #include <boost/timer.hpp>
 #include <boost/algorithm/string.hpp>
 #include <tbb/concurrent_queue.h>
-#include <tbb/compat/thread>
+//#include <tbb/compat/thread>
 
 #ifndef CASPAR_2_1
 #include <core/parameters/parameters.h>
@@ -156,14 +156,14 @@ struct replay_producer : public core::frame_producer_base
 		in_file_ = safe_fopen((filename_).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
 		if (in_file_ != NULL)
 		{
-			_off_t size = 0;
+			uint64_t size = 0;
 
 			in_idx_file_ = safe_fopen((boost::filesystem::wpath(filename_).replace_extension(L".idx").wstring()).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
 			if (in_idx_file_ != NULL)
 			{
 				while (size == 0)
 				{
-					size = boost::filesystem::file_size(boost::filesystem::wpath(filename_).replace_extension(L".idx").string());
+					size = (uint64_t)boost::filesystem::file_size(boost::filesystem::wpath(filename_).replace_extension(L".idx").string());
 
 					if (size > 0) {
 						mjpeg_file_header* header;
@@ -263,7 +263,11 @@ struct replay_producer : public core::frame_producer_base
 									}
 									else
 									{
+#ifdef _WIN32                                                                          
 										Sleep(1000 / (index_header_->fps * 2));
+#else
+                                                                                usleep(1000000 / (index_header_->fps * 2));
+#endif
 									}
 								}
 							}
@@ -272,7 +276,8 @@ struct replay_producer : public core::frame_producer_base
 					else
 					{
 						CASPAR_LOG(warning) << print() << L" Waiting for index file to grow.";
-						boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+						//boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+                                                std::this_thread::sleep_for(std::chrono::milliseconds(10));
 					}
 				}
 			}
@@ -497,9 +502,9 @@ struct replay_producer : public core::frame_producer_base
 
 		monitor_subject_	<< core::monitor::message("/profiler/time")		% elapsed % (1.0/index_header_->fps);			
 								
-		monitor_subject_	<< core::monitor::message("/file/time")			% ((interlaced_ ? real_framenum_ / 2 : real_framenum_) / index_header_->fps) 
+		monitor_subject_	<< core::monitor::message("/file/time")			% ((interlaced_ ? (long unsigned int)real_framenum_ / 2 : (long unsigned int)real_framenum_) / index_header_->fps) 
 																			% ((last_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1) / index_header_->fps)
-							<< core::monitor::message("/file/frame")		% static_cast<int32_t>((interlaced_ ? real_framenum_ / 2 : real_framenum_))
+							<< core::monitor::message("/file/frame")		% static_cast<int32_t>((interlaced_ ? (long unsigned int)real_framenum_ / 2 : (long unsigned int)real_framenum_))
 																			% static_cast<int32_t>(real_last_framenum_ / (interlaced_ ? 2 : 1))
 							<< core::monitor::message("/file/vframe")		% static_cast<int32_t>((real_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1))
 																			% static_cast<int32_t>(((last_framenum_ > 0 ? last_framenum_ : real_last_framenum_) - first_framenum_ ) / (interlaced_ ? 2 : 1))
@@ -947,7 +952,7 @@ struct replay_producer : public core::frame_producer_base
 
 	virtual std::wstring print() const override
 	{
-		return L"replay_producer[" + filename_ + L"|" + boost::lexical_cast<std::wstring>(interlaced_ ? real_framenum_ / 2 : real_framenum_)
+		return L"replay_producer[" + filename_ + L"|" + boost::lexical_cast<std::wstring>(interlaced_ ? (long unsigned int)real_framenum_ / 2 : (long unsigned int)real_framenum_)
 			 + L"|" + boost::lexical_cast<std::wstring>(speed_)
 			 + L"]";
 	}
@@ -957,7 +962,7 @@ struct replay_producer : public core::frame_producer_base
 		boost::property_tree::wptree info;
 		info.add(L"type", L"replay-producer");
 		info.add(L"filename",			filename_);
-		info.add(L"play-head",			(interlaced_ ? real_framenum_ / 2 : real_framenum_)); // deprecated
+		info.add(L"play-head",			(interlaced_ ? (long unsigned int)real_framenum_ / 2 : (long unsigned int)real_framenum_)); // deprecated
 		info.add(L"start-timecode",		boost::posix_time::to_iso_wstring(index_header_->begin_timecode));
 		info.add(L"speed",				speed_);
 		info.add(L"width",				index_header_->width);
@@ -968,7 +973,7 @@ struct replay_producer : public core::frame_producer_base
 		info.add(L"loop",				false); // not implemented
 		info.add(L"frame-number",		static_cast<int32_t>((real_framenum_ - first_framenum_) / (interlaced_ ? 2 : 1)));
 		info.add(L"nb-frames",			static_cast<int32_t>(((last_framenum_ > 0 ? last_framenum_ : real_last_framenum_)  - first_framenum_) / (interlaced_ ? 2 : 1)));
-		info.add(L"file-frame-number",	static_cast<int32_t>((interlaced_ ? real_framenum_ / 2 : real_framenum_)));
+		info.add(L"file-frame-number",	static_cast<int32_t>((interlaced_ ? (long unsigned int)real_framenum_ / 2 : (long unsigned int)real_framenum_)));
 		info.add(L"file-nb-frames",		static_cast<int32_t>(real_last_framenum_ / (interlaced_ ? 2 : 1)));
 		return info;
 	}
@@ -1027,7 +1032,11 @@ spl::shared_ptr<core::frame_producer> create_producer(const core::frame_producer
 #endif
 {
 	static const std::vector<std::wstring> extensions = list_of(L"mav");
+#ifndef CASPAR_2_1
 	std::wstring filename = env::media_folder() + L"\\" + params[0];
+#else
+        std::wstring filename = env::media_folder() + params.at(0);
+#endif
 	
 	auto ext = std::find_if(extensions.begin(), extensions.end(), [&](const std::wstring& ex) -> bool
 		{					
