@@ -34,15 +34,13 @@
 #include <boost/assign.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/property_tree/ptree.hpp>
-//#include <boost/thread.hpp>
-//#include <boost/thread/locks.hpp>
 #include <boost/regex.hpp>
 #include <boost/timer.hpp>
 #include <boost/algorithm/string.hpp>
 #include <tbb/concurrent_queue.h>
-//#include <tbb/compat/thread>
 
 #ifndef CASPAR_2_1
+#include <tbb/compat/thread>
 #include <core/parameters/parameters.h>
 #include <core/producer/frame/basic_frame.h>
 #include <core/producer/frame/frame_factory.h>
@@ -275,9 +273,11 @@ struct replay_producer : public core::frame_producer_base
 					}
 					else
 					{
-						CASPAR_LOG(warning) << print() << L" Waiting for index file to grow.";
-						//boost::this_thread::sleep(boost::posix_time::milliseconds(10));
-                                                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#ifndef CASPAR_2_1
+						boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+#else
+						std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#endif
 					}
 				}
 			}
