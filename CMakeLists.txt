@@ -37,6 +37,9 @@ set(GTEST_INCLUDE_PATH			"${DEPENDENCIES_FOLDER}/gtest/include")
 
 if (MSVC)
 	set(PLATFORM_FOLDER_NAME	"win32")
+elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+	set(PLATFORM_FOLDER_NAME	"osx")
+        add_compile_options( -stdlib=libc++ )	# Use C++11 compatible stdlib
 elseif (CMAKE_COMPILER_IS_GNUCXX)
 	set(PLATFORM_FOLDER_NAME	"linux")
 endif ()
@@ -75,6 +78,10 @@ add_definitions( -D_UNICODE )
 add_definitions( -DGLEW_NO_GLU )
 add_definitions( "-DBOOST_ASIO_ERROR_CATEGORY_NOEXCEPT=noexcept(true)" ) # Workaround macro redefinition in boost
 add_definitions( -D_GLIBCXX_USE_CXX11_ABI=0 ) # Allow compilation in GCC 5 while keeping old dependencies
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+	set(CMAKE_COMPILER_IS_GNUCXX 1)	# Clang should be compatible with GNU
+endif ()
 
 if (MSVC)
 	set(CMAKE_CXX_FLAGS					"${CMAKE_CXX_FLAGS}					/EHa /Zi /W4 /WX /MP /fp:fast /Zm192 /FIcommon/compiler/vs/disable_silly_warnings.h")
