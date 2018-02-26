@@ -61,6 +61,7 @@ struct replay_producer : public core::frame_producer_base
 	const std::wstring						filename_;
 	core::draw_frame						frame_;
 	core::draw_frame						last_frame_;
+	boost::mutex frame_buffer_mutex_;
 	std::queue<std::pair<core::draw_frame, uint64_t>>	frame_buffer_;
 	core::constraints						constraints_;
 	bool									frame_stable_;
@@ -188,7 +189,13 @@ struct replay_producer : public core::frame_producer_base
 							{
 								while (runstate_ == 0)
 								{
-									if (frame_buffer_.size() < REPLAY_PRODUCER_BUFFER_SIZE)
+									size_t cur_size = 0;
+									{
+										boost::lock_guard<boost::mutex> lock(frame_buffer_mutex_);
+										cur_size = frame_buffer_.size();
+									}
+
+									if (cur_size < REPLAY_PRODUCER_BUFFER_SIZE)
 									{
 										try
 										{
@@ -198,7 +205,10 @@ struct replay_producer : public core::frame_producer_base
 											if (interlaced_ && !(real_last_framenum_ & 1))
 												real_last_framenum_--;
 											auto frame_pair = render_frame(0);
-											frame_buffer_.push(frame_pair);
+											{
+												boost::lock_guard<boost::mutex> lock(frame_buffer_mutex_);
+												frame_buffer_.push(frame_pair);
+											}
 											update_diag(frame_timer.elapsed()*0.5*index_header_->fps);
 										} 
 										catch (...)
@@ -728,6 +738,11 @@ struct replay_producer : public core::frame_producer_base
 		uint32_t audio1_size;
 		uint32_t audio2_size;
 		uint32_t field1_size = read_frame(in_file_, &field1_width, &field1_height, &field1, &audio1_size, &audio1);
+		if (field1 == nullptr)
+		{
+			delete audio1;
+			return std::make_pair(frame_, framenum_);
+		}
 
 		if (!interlaced_)
 		{
@@ -762,6 +777,13 @@ struct replay_producer : public core::frame_producer_base
 		seek_frame(in_file_, field2_pos, FILE_BEGIN);
 
 		uint32_t field2_size = read_frame(in_file_, &field1_width, &field1_height, &field2, &audio2_size, &audio2);
+		if (field2 == nullptr)
+		{
+			delete field1;
+			delete audio1;
+			delete audio2;
+			return std::make_pair(frame_, framenum_);
+		}
 
 		audio = new int32_t[(audio1_size + audio2_size)/4];
 		memcpy(audio, audio1, audio1_size);
@@ -788,23 +810,21 @@ struct replay_producer : public core::frame_producer_base
 
 	core::draw_frame receive_impl() override
 	{
-		auto frame = core::draw_frame::late();
+		boost::lock_guard<boost::mutex> lock(frame_buffer_mutex_);
 
 		if (frame_buffer_.size() < 1)
 		{
+			result_framenum_++;
+
 			graph_->set_tag(caspar::diagnostics::tag_severity::WARNING, "underflow");
-			frame = last_frame_;	// repeat last frame
-		}
-		else
-		{
-			frame = frame_buffer_.front().first;
-			real_framenum_ = frame_buffer_.front().second;
-			frame_buffer_.pop();
+			return last_frame_;	// repeat last frame
 		}
 
+		auto frame = last_frame_= frame_buffer_.front().first;
+		real_framenum_ = frame_buffer_.front().second;
+		frame_buffer_.pop();
+
 		result_framenum_++;
-		
-		last_frame_ = frame;
 
 		return frame;
 	}
