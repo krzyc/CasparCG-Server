@@ -1,6 +1,15 @@
 cmake_minimum_required (VERSION 2.6)
 project (replay)
 
+if(MSVC)
+    set(LIBJPEGTURBO_INCLUDE_PATH "${PACKAGES_FOLDER}/libjpeg-turbo/include/win32")
+    set(LIBJPEGTURBO_BIN_PATH "${PACKAGES_FOLDER}/libjpeg-turbo/bin/win32")
+    link_directories("${PACKAGES_FOLDER}/libjpeg-turbo/lib/win32")
+	casparcg_add_runtime_dependency("${LIBJPEGTURBO_BIN_PATH}/jpeg62.dll")
+else()
+	casparcg_add_runtime_dependency("${LIBJPEGTURBO_BIN_PATH}/libjpeg.so.62")
+endif()
+
 set(SOURCES
 		consumer/replay_consumer.cpp
 
@@ -44,7 +53,7 @@ if(MSVC)
 		common
 		core
 
-		jpeg.lib
+		"${PACKAGES_FOLDER}/libjpeg-turbo/lib/win32/jpeg.lib"
 	)
 else()
 	target_link_libraries(replay
@@ -58,9 +67,3 @@ endif()
 casparcg_add_include_statement("modules/replay/replay.h")
 casparcg_add_init_statement("replay::init" "replay")
 casparcg_add_module_project("replay")
-
-if(MSVC)
-	casparcg_add_runtime_dependency("${LIBJPEGTURBO_BIN_PATH}/jpeg62.dll")
-else()
-	casparcg_add_runtime_dependency("${LIBJPEGTURBO_BIN_PATH}/libjpeg.so.62")
-endif()
