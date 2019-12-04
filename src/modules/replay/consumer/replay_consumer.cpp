@@ -59,8 +59,6 @@ struct replay_consumer : public core::frame_consumer
     spl::shared_ptr<diagnostics::graph>        graph_;
     boost::posix_time::ptime                   start_timecode_;
 
-    int                                        audio_channels_;
-
 #define REPLAY_FRAME_BUFFER                    32
 #define REPLAY_JPEG_QUALITY                    90
 #define REPLAY_JPEG_SUBSAMPLING                Y422
@@ -69,14 +67,13 @@ public:
 
     // frame_consumer
 
-    replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling, int audio_channels)
+    replay_consumer(const std::wstring& filename, const short quality, const chroma_subsampling subsampling)
         : filename_(filename)
         , quality_(quality)
         , subsampling_(subsampling)
         , encode_executor_(print())
     {
         framenum_ = 0;
-        audio_channels_ = audio_channels;
 
         encode_executor_.set_capacity(REPLAY_FRAME_BUFFER);
 
@@ -116,7 +113,7 @@ public:
 
         start_timecode_ = boost::posix_time::microsec_clock::universal_time();
 
-        write_index_header(output_index_file_, &format_desc, start_timecode_, audio_channels_);
+        write_index_header(output_index_file_, &format_desc, start_timecode_, format_desc_.audio_channels);
     }
 
 #pragma warning(disable: 4701)
@@ -267,7 +264,7 @@ spl::shared_ptr<core::frame_consumer> create_consumer(const std::vector<std::wst
         }
     }
 
-    return spl::make_shared<replay_consumer>(filename, quality, subsampling, 2);
+    return spl::make_shared<replay_consumer>(filename, quality, subsampling);
 }
 
 }}
